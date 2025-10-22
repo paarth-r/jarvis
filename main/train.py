@@ -19,7 +19,9 @@ class TCN(nn.Module):
         x = x.transpose(1, 2)  # [B, F, T]
         return self.net(x)
 
-X, y = np.load("X.npy"), np.load("y.npy")
+model_name = "gesture_tcn.pt"
+
+X, y = np.load("npy/X.npy"), np.load("npy/y.npy")
 X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, stratify=y)
 train_tensor = torch.tensor(X_train, dtype=torch.float32)
 val_tensor = torch.tensor(X_val, dtype=torch.float32)
@@ -44,4 +46,4 @@ for epoch in range(30):
         acc = (val_out.argmax(1) == y_val_t).float().mean().item()
     print(f"Epoch {epoch}: Loss={loss.item():.3f}, ValAcc={acc:.3f}")
 
-torch.save(model.state_dict(), "gesture_tcn.pt")
+torch.save(model.state_dict(), f"models/{model_name}")

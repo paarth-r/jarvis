@@ -4,8 +4,9 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 mp_draw = mp.solutions.drawing_utils
 
-GESTURE = "swipe_left"
-SAVE_DIR = f"main/gesture_data/{GESTURE}"
+# GESTURE = "swipe_right_scroll"
+GESTURE = "initialize"
+SAVE_DIR = f"gesture_data/{GESTURE}"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # --- Find largest existing file number ---

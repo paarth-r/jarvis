@@ -8,10 +8,10 @@ import pyautogui
 import time
 
 # === CONFIG ===
-MODEL_PATH = "/Users/paarth/Desktop/everything/tonystark/main/gesture_tcn.pt"
+MODEL_PATH = "/Users/paarth/Desktop/everything/tonystark/main/models/gesture_tcn.pt"
 SEQ_LEN = 30
-CONF_THRESH = 0.8
-GESTURE_CLASSES = ["swipe_left", "swipe_right"]  # update with your labels
+CONF_THRESH = 0.75
+GESTURE_CLASSES = ["initialize"]  # update with your labels
 
 # === MODEL DEFINITION ===
 class TCN(nn.Module):
@@ -57,10 +57,10 @@ def perform_action(gesture):
         return
     print(f"Action: {gesture}")
 
-    if gesture == "swipe_left":
-        pyautogui.hotkey("ctrl", "right")  # next app
-    elif gesture == "swipe_right":
-        pyautogui.hotkey("ctrl", "left")  # previous app
+    if gesture == "initialize":
+        pyautogui.hotkey("command", "space")  # raycast
+    # elif gesture == "swipe_right":
+    #     pyautogui.hotkey("ctrl", "left")  # previous app
 
     last_action_time = time.time()
 

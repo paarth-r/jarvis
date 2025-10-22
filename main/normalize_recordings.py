@@ -18,5 +18,5 @@ for label, g in enumerate(GESTURES):
         X.append(seq)
         y.append(label)
 
-np.save("X.npy", np.array(X))
-np.save("y.npy", np.array(y))
+np.save("npy/X.npy", np.array(X))
+np.save("npy/y.npy", np.array(y))
