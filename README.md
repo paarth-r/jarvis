@@ -45,16 +45,9 @@ python normalize_recordings.py
 python train.py
 ```
 
-7. Add the name of any new gesture to 
-```bash
-GESTURE_CLASSES
-```
-list in
-```bash
-run.py
-```
+7. Add the name of any new gesture to `GESTURE_CLASSES` in `run.py`
 
-5. Run the model:
+8. Run the model:
 ```bash
 python run.py
 ```
