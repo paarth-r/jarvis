@@ -8,7 +8,7 @@ import pyautogui
 import time
 
 # === CONFIG ===
-MODEL_PATH = "/Users/paarth/Desktop/everything/tonystark/main/models/gesture_tcn.pt"
+MODEL_PATH = "/models/gesture_tcn.pt"
 SEQ_LEN = 30
 CONF_THRESH = 0.75
 GESTURE_CLASSES = ["initialize"]  # update with your labels
