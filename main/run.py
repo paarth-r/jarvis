@@ -4,14 +4,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from collections import deque
-import pyautogui
-import time
+
+from utils import perform_action
 
 # === CONFIG ===
 MODEL_PATH = "models/gesture_tcn.pt"
 SEQ_LEN = 30
 CONF_THRESH = 0.75
-GESTURE_CLASSES = ["initialize"]  # update with your labels
+GESTURE_CLASSES = ["initialize", "swipe_L"]
 
 # === MODEL DEFINITION ===
 class TCN(nn.Module):
@@ -29,7 +29,7 @@ class TCN(nn.Module):
             nn.Linear(128, n_classes)
         )
     def forward(self, x):
-        x = x.transpose(1, 2)  # [B, F, T]
+        x = x.transpose(1, 2)
         return self.net(x)
 
 # === LOAD MODEL ===
@@ -44,28 +44,12 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7, min_tracking_confidence=0.6)
 mp_draw = mp.solutions.drawing_utils
 
-# === BUFFER & STATE ===
+# === STATE ===
 seq_buffer = deque(maxlen=SEQ_LEN)
-last_action_time = 0
-cooldown = 1.0  # seconds between actions
 current_pred = "..."
 
-# === ACTION MAP ===
-def perform_action(gesture):
-    global last_action_time
-    if time.time() - last_action_time < cooldown:
-        return
-    print(f"Action: {gesture}")
-
-    if gesture == "initialize":
-        pyautogui.hotkey("command", "space")  # raycast
-    # elif gesture == "swipe_right":
-    #     pyautogui.hotkey("ctrl", "left")  # previous app
-
-    last_action_time = time.time()
-
-# === MAIN LOOP ===
-cap = cv2.VideoCapture(1)
+# === INFERENCE LOOP ===
+cap = cv2.VideoCapture(0)
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -79,7 +63,7 @@ while True:
         mp_draw.draw_landmarks(frame, lm, mp_hands.HAND_CONNECTIONS)
 
         landmarks = np.array([[p.x, p.y, p.z] for p in lm.landmark])
-        landmarks -= landmarks[0]  # wrist normalization
+        landmarks -= landmarks[0]
         seq_buffer.append(landmarks.flatten())
 
         if len(seq_buffer) == SEQ_LEN:
@@ -97,12 +81,11 @@ while True:
     else:
         seq_buffer.clear()
 
-    # === DISPLAY ===
     cv2.putText(frame, current_pred, (10, 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
     cv2.imshow("Gesture Control", frame)
 
-    if cv2.waitKey(1) & 0xFF == 27:  # ESC to quit
+    if cv2.waitKey(1) & 0xFF == 27:
         break
 
 cap.release()
