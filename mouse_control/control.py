@@ -1,15 +1,9 @@
 """
 macOS mouse and scroll injection via Quartz Event Services.
 Move, click/drag, scroll with gain and deadzone. No events when idle.
-Click halo: if a button is near the click point, activate it via Accessibility.
 """
 import time
 from typing import Tuple
-
-try:
-    from click_halo import try_click_halo
-except ImportError:
-    try_click_halo = None
 
 try:
     from Quartz.CoreGraphics import (
@@ -114,15 +108,12 @@ class MouseController:
         CGEventPost(kCGHIDEventTap, event)
 
     def click(self, norm_x: float, norm_y: float) -> None:
-        """Click with halo: if a button/link is near the point, activate it; else normal click."""
+        """Perform a normal left click at the given normalized position."""
         x, y = self._norm_to_screen(norm_x, norm_y)
         x, y = self._clip_to_screen(x, y)
-        if try_click_halo is not None:
-            if try_click_halo(x, y, radius_px=self._click_halo_radius):
-                return
         if not _QUARTZ_AVAILABLE:
             return
-        print(f"[control] normal click at ({x:.0f}, {y:.0f})", flush=True)
+        print(f"[control] click at ({x:.0f}, {y:.0f})", flush=True)
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)
