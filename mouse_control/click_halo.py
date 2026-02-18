@@ -100,7 +100,7 @@ _CLICKABLE_ROLES = frozenset({
 
 
 def find_clickable_in_halo(
-    x: float, y: float, radius_px: float = 56, num_points: int = 12
+    x: float, y: float, radius_px: float = 16, num_points: int = 12
 ) -> Optional[c_void_p]:
     """
     Sample points in a circle around (x, y). If any has a clickable element (button, link, etc.),
