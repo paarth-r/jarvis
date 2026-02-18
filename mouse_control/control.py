@@ -32,8 +32,10 @@ def _get_screen_size() -> Tuple[int, int]:
 
 
 def _map_hand_to_screen(norm: float, scale: float, edge_margin: float) -> float:
-    """Map hand (0-1) to screen (0-1): scale from center (e.g. 2x), clamp so cursor doesn't snap to edges."""
+    """Map hand (0-1) to screen (0-1): scale from center (e.g. 2x). Optionally clamp with edge_margin to keep cursor off edges."""
     raw = 0.5 + scale * (norm - 0.5)
+    if edge_margin <= 0:
+        return max(0.0, min(1.0, raw))
     return max(edge_margin, min(1.0 - edge_margin, raw))
 
 
@@ -44,7 +46,7 @@ class MouseController:
         deadzone: float = 0.002,
         scroll_gain: float = 80.0,
         scroll_deadzone: float = 0.01,
-        edge_margin: float = 0.02,
+        edge_margin: float = 0.0,
         click_halo_radius: float = 56.0,
     ):
         self._move_gain = move_gain
@@ -62,7 +64,7 @@ class MouseController:
         return (max(0, min(x, w - 1)), max(0, min(y, h - 1)))
 
     def _norm_to_screen(self, norm_x: float, norm_y: float) -> Tuple[float, float]:
-        """Apply scale from center and edge margin so cursor doesn't jump to screen edges."""
+        """Map normalized hand position to screen coordinates (scale from center; optional edge margin)."""
         sx = _map_hand_to_screen(norm_x, self._move_gain, self._edge_margin)
         sy = _map_hand_to_screen(norm_y, self._move_gain, self._edge_margin)
         w, h = _get_screen_size()
