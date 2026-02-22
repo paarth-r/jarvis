@@ -1,6 +1,7 @@
 """
 macOS mouse and scroll injection via Quartz Event Services.
 Move, click/drag, scroll with gain and deadzone. No events when idle.
+Cursor is mapped to the largest display when multiple monitors are attached.
 """
 import time
 from typing import Tuple
@@ -23,12 +24,51 @@ try:
 except ImportError:
     _QUARTZ_AVAILABLE = False
 
+try:
+    from AppKit import NSScreen
+    _APPKIT_AVAILABLE = True
+except ImportError:
+    _APPKIT_AVAILABLE = False
+
+
+def _get_largest_display_bounds() -> Tuple[float, float, float, float]:
+    """Return (origin_x, origin_y, width, height) of the display with largest area, in Quartz screen coordinates."""
+    if not _QUARTZ_AVAILABLE:
+        return (0.0, 0.0, 1920.0, 1080.0)
+    display_id = CGMainDisplayID()
+    if _APPKIT_AVAILABLE:
+        try:
+            screens = NSScreen.screens()
+            if screens and len(screens) > 0:
+                best_area = -1.0
+                for screen in screens:
+                    desc = screen.deviceDescription()
+                    did = desc.get("NSScreenNumber")
+                    if did is None:
+                        continue
+                    bounds = CGDisplayBounds(did)
+                    w = float(bounds.size.width)
+                    h = float(bounds.size.height)
+                    area = w * h
+                    if area > best_area:
+                        best_area = area
+                        display_id = did
+        except Exception:
+            pass
+    bounds = CGDisplayBounds(display_id)
+    ox = float(bounds.origin.x)
+    oy = float(bounds.origin.y)
+    w = float(bounds.size.width)
+    h = float(bounds.size.height)
+    return (ox, oy, w, h)
+
 
 def _get_screen_size() -> Tuple[int, int]:
+    """Return (width, height) of the largest display."""
     if not _QUARTZ_AVAILABLE:
         return (1920, 1080)
-    bounds = CGDisplayBounds(CGMainDisplayID())
-    return (int(bounds.size.width), int(bounds.size.height))
+    _, _, w, h = _get_largest_display_bounds()
+    return (int(w), int(h))
 
 
 def _map_hand_to_screen(norm: float, scale: float, edge_margin: float) -> float:
@@ -59,16 +99,23 @@ class MouseController:
         self._last_emit_ts: float = 0.0
         self._min_emit_interval = 1 / 120.0  # don't spam above 120 Hz
 
+    def _get_bounds(self) -> Tuple[float, float, float, float]:
+        """Largest display: (origin_x, origin_y, width, height)."""
+        return _get_largest_display_bounds()
+
     def _clip_to_screen(self, x: float, y: float) -> Tuple[float, float]:
-        w, h = _get_screen_size()
-        return (max(0, min(x, w - 1)), max(0, min(y, h - 1)))
+        ox, oy, w, h = self._get_bounds()
+        return (
+            max(ox, min(x, ox + w - 1)),
+            max(oy, min(y, oy + h - 1)),
+        )
 
     def _norm_to_screen(self, norm_x: float, norm_y: float) -> Tuple[float, float]:
-        """Map normalized hand position to screen coordinates (scale from center; optional edge margin)."""
+        """Map normalized hand position (0-1) to screen coords on the largest display."""
         sx = _map_hand_to_screen(norm_x, self._move_gain, self._edge_margin)
         sy = _map_hand_to_screen(norm_y, self._move_gain, self._edge_margin)
-        w, h = _get_screen_size()
-        return (sx * w, sy * h)
+        ox, oy, w, h = self._get_bounds()
+        return (ox + sx * w, oy + sy * h)
 
     def _apply_deadzone(self, dx: float, dy: float) -> Tuple[float, float]:
         if abs(dx) < self._deadzone:
