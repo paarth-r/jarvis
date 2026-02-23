@@ -4,7 +4,7 @@ Move, click/drag, scroll with gain and deadzone. No events when idle.
 Cursor is mapped to the largest display when multiple monitors are attached.
 """
 import time
-from typing import Tuple
+from typing import Optional, Tuple
 
 try:
     from Quartz.CoreGraphics import (
@@ -88,6 +88,8 @@ class MouseController:
         scroll_deadzone: float = 0.01,
         edge_margin: float = 0.0,
         click_halo_radius: float = 56.0,
+        smoothing: float = 0.25,
+        move_threshold_px: float = 1.0,
     ):
         self._move_gain = move_gain
         self._deadzone = deadzone
@@ -95,9 +97,15 @@ class MouseController:
         self._scroll_deadzone = scroll_deadzone
         self._edge_margin = edge_margin
         self._click_halo_radius = click_halo_radius
+        self._smoothing = max(0.01, min(1.0, smoothing))  # EMA alpha: lower = smoother, higher = snappier
+        self._move_threshold_px = max(0.0, move_threshold_px)
         self._mouse_down = False
         self._last_emit_ts: float = 0.0
         self._min_emit_interval = 1 / 120.0  # don't spam above 120 Hz
+        self._smooth_norm_x: Optional[float] = None
+        self._smooth_norm_y: Optional[float] = None
+        self._last_emit_x: Optional[float] = None
+        self._last_emit_y: Optional[float] = None
 
     def _get_bounds(self) -> Tuple[float, float, float, float]:
         """Largest display: (origin_x, origin_y, width, height)."""
@@ -117,6 +125,17 @@ class MouseController:
         ox, oy, w, h = self._get_bounds()
         return (ox + sx * w, oy + sy * h)
 
+    def _update_smooth_and_to_screen(self, norm_x: float, norm_y: float) -> Tuple[float, float]:
+        """Update EMA-smoothed position from raw (norm_x, norm_y); return (screen_x, screen_y)."""
+        alpha = self._smoothing
+        if self._smooth_norm_x is None:
+            self._smooth_norm_x = norm_x
+            self._smooth_norm_y = norm_y
+        else:
+            self._smooth_norm_x = alpha * norm_x + (1.0 - alpha) * self._smooth_norm_x
+            self._smooth_norm_y = alpha * norm_y + (1.0 - alpha) * self._smooth_norm_y
+        return self._norm_to_screen(self._smooth_norm_x, self._smooth_norm_y)
+
     def _apply_deadzone(self, dx: float, dy: float) -> Tuple[float, float]:
         if abs(dx) < self._deadzone:
             dx = 0.0
@@ -125,14 +144,21 @@ class MouseController:
         return (dx, dy)
 
     def move(self, norm_x: float, norm_y: float) -> None:
-        """Move mouse to normalized (0-1) position; (0,0) = top-left. Uses 2x scale from center."""
+        """Move mouse to normalized (0-1) position; smoothed and only emitted when beyond threshold."""
         if not _QUARTZ_AVAILABLE:
             return
         now = time.perf_counter()
         if now - self._last_emit_ts < self._min_emit_interval:
             return
-        x, y = self._norm_to_screen(norm_x, norm_y)
+        x, y = self._update_smooth_and_to_screen(norm_x, norm_y)
         x, y = self._clip_to_screen(x, y)
+        # Skip move if change is below threshold (reduces jitter, easier to hold still)
+        if self._move_threshold_px > 0 and self._last_emit_x is not None and self._last_emit_y is not None:
+            dx = x - self._last_emit_x
+            dy = y - self._last_emit_y
+            if dx * dx + dy * dy < self._move_threshold_px * self._move_threshold_px:
+                return
+        self._last_emit_x, self._last_emit_y = x, y
         event_type = kCGEventLeftMouseDragged if self._mouse_down else kCGEventMouseMoved
         event = CGEventCreateMouseEvent(None, event_type, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
@@ -142,8 +168,9 @@ class MouseController:
         if not _QUARTZ_AVAILABLE:
             return
         self._mouse_down = True
-        x, y = self._norm_to_screen(norm_x, norm_y)
+        x, y = self._update_smooth_and_to_screen(norm_x, norm_y)
         x, y = self._clip_to_screen(x, y)
+        self._last_emit_x, self._last_emit_y = x, y
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
 
@@ -151,18 +178,19 @@ class MouseController:
         if not _QUARTZ_AVAILABLE:
             return
         self._mouse_down = False
-        x, y = self._norm_to_screen(norm_x, norm_y)
+        x, y = self._update_smooth_and_to_screen(norm_x, norm_y)
         x, y = self._clip_to_screen(x, y)
+        self._last_emit_x, self._last_emit_y = x, y
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
 
     def click(self, norm_x: float, norm_y: float) -> None:
-        """Perform a normal left click at the given normalized position."""
-        x, y = self._norm_to_screen(norm_x, norm_y)
+        """Perform a left click at the smoothed position (same as cursor)."""
+        x, y = self._update_smooth_and_to_screen(norm_x, norm_y)
         x, y = self._clip_to_screen(x, y)
         if not _QUARTZ_AVAILABLE:
             return
-        print(f"[control] click at ({x:.0f}, {y:.0f})", flush=True)
+        self._last_emit_x, self._last_emit_y = x, y
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)

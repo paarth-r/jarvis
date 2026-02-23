@@ -1,6 +1,6 @@
 """
 Temporal gesture FSMs (no ML).
-Pinch → single click. Cursor always follows hand (mouse move). No drag, no delay.
+Cursor at index–thumb midpoint; index–thumb pinch → click.
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -16,9 +16,9 @@ class GestureIntent:
     confidence: float = 0.0
 
 
-# Pinch: thumb + pinky close → one click. Hysteresis to avoid bounce.
-PINCH_CLOSE_THRESH = 0.07
-PINCH_OPEN_THRESH = 0.10
+# Pinch: index + thumb close → one click. Hysteresis to avoid bounce.
+PINCH_CLOSE_THRESH = 0.05   # index–thumb touch is closer than thumb–pinky
+PINCH_OPEN_THRESH = 0.08
 
 
 class PinchState(Enum):
@@ -31,10 +31,10 @@ class GestureFSM:
         self._pinch_state = PinchState.NONE
 
     def _is_pinch(self, pose: HandPose) -> bool:
-        return pose.thumb_pinky_dist < PINCH_CLOSE_THRESH
+        return pose.thumb_index_dist < PINCH_CLOSE_THRESH
 
     def _is_pinch_released(self, pose: HandPose) -> bool:
-        return pose.thumb_pinky_dist > PINCH_OPEN_THRESH
+        return pose.thumb_index_dist > PINCH_OPEN_THRESH
 
     def update(self, pose: Optional[HandPose], dt_sec: float) -> GestureIntent:
         if pose is None:

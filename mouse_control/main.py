@@ -7,7 +7,7 @@ import cv2
 import time
 
 from camera import Camera, Frame
-from hand_pose import HandPoseEstimator, INDEX_TIP
+from hand_pose import HandPoseEstimator, INDEX_MCP, THUMB_MCP
 from gestures import GestureFSM, GestureIntent
 from control import MouseController, is_available as control_available
 
@@ -52,7 +52,10 @@ def run():
         return
     hand_pose = HandPoseEstimator()
     gesture_fsm = GestureFSM()
-    controller = MouseController()
+    controller = MouseController(
+        smoothing=0.3,
+        move_threshold_px=2.0,
+    )
 
     if not control_available():
         print("Quartz not available; mouse/scroll will not be injected.")
@@ -73,10 +76,13 @@ def run():
             intent = gesture_fsm.update(pose, frame.dt)
             t_after_gesture = time.perf_counter()
 
-            # Control layer: mirror x so hand motion matches cursor (camera is front-facing)
+            # Control layer: cursor at midpoint of index and thumb knuckles; mirror x (camera is front-facing)
             if pose is not None:
-                ix, iy = float(pose.landmarks[INDEX_TIP, 0]), float(pose.landmarks[INDEX_TIP, 1])
-                mx, my = 1.0 - ix, iy
+                ix, iy = float(pose.landmarks[INDEX_MCP, 0]), float(pose.landmarks[INDEX_MCP, 1])
+                tx, ty = float(pose.landmarks[THUMB_MCP, 0]), float(pose.landmarks[THUMB_MCP, 1])
+                mid_x = (ix + tx) / 2.0
+                mid_y = (iy + ty) / 2.0
+                mx, my = 1.0 - mid_x, mid_y
                 controller.move(mx, my)
                 if intent.type == "click":
                     controller.click(mx, my)

@@ -11,7 +11,10 @@ from typing import Optional
 
 # MediaPipe hand landmark indices
 WRIST = 0
+THUMB_CMC = 1
+THUMB_MCP = 2   # thumb knuckle (first joint from palm)
 THUMB_TIP = 4
+INDEX_MCP = 5   # index knuckle (where finger meets palm)
 INDEX_TIP = 8
 MIDDLE_TIP = 12
 PINKY_TIP = 20
