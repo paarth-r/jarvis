@@ -2,7 +2,7 @@
 MediaPipe inference + landmark smoothing.
 Tracks one dominant hand; outputs normalized landmarks, key distances, velocity (EMA).
 """
-import cv2
+import os
 import numpy as np
 import mediapipe as mp
 from dataclasses import dataclass
@@ -20,6 +20,8 @@ MIDDLE_TIP = 12
 PINKY_TIP = 20
 INDEX_PIP = 6
 MIDDLE_PIP = 10
+
+_MODEL_PATH = os.path.join(os.path.dirname(__file__), "hand_landmarker.task")
 
 
 @dataclass
@@ -47,34 +49,41 @@ class HandPoseEstimator:
         landmark_smooth_alpha: float = 0.4,
         velocity_alpha: float = 0.3,
     ):
-        self._hands = mp.solutions.hands.Hands(
-            max_num_hands=1,
-            min_detection_confidence=min_detection_confidence,
+        options = mp.tasks.vision.HandLandmarkerOptions(
+            base_options=mp.tasks.BaseOptions(model_asset_path=_MODEL_PATH),
+            running_mode=mp.tasks.vision.RunningMode.VIDEO,
+            num_hands=1,
+            min_hand_detection_confidence=min_detection_confidence,
+            min_hand_presence_confidence=min_detection_confidence,
             min_tracking_confidence=min_tracking_confidence,
         )
+        self._landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
         self._landmark_alpha = landmark_smooth_alpha
         self._velocity_alpha = velocity_alpha
         self._smoothed_landmarks: Optional[np.ndarray] = None
         self._prev_landmarks: Optional[np.ndarray] = None
         self._prev_ts: Optional[float] = None
         self._prev_velocity: Optional[np.ndarray] = None
+        self._frame_idx = 0
 
     def process(self, rgb_frame: np.ndarray, timestamp: float) -> Optional[HandPose]:
-        h, w = rgb_frame.shape[:2]
-        results = self._hands.process(rgb_frame)
-        if not results.multi_hand_landmarks:
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        timestamp_ms = int(self._frame_idx * (1000 / 30))
+        self._frame_idx += 1
+        results = self._landmarker.detect_for_video(mp_image, timestamp_ms)
+        if not results.hand_landmarks:
             self._prev_landmarks = None
             return None
-        lm = results.multi_hand_landmarks[0]
+        lm_list = results.hand_landmarks[0]
         handedness = (
-            results.multi_handedness[0].classification[0].label
-            if results.multi_handedness
+            results.handedness[0][0].category_name
+            if results.handedness
             else "Unknown"
         )
         if handedness != "Left":
             self.reset()
             return None
-        landmarks = np.array([[p.x, p.y, p.z] for p in lm.landmark], dtype=np.float64)
+        landmarks = np.array([[p.x, p.y, p.z] for p in lm_list], dtype=np.float64)
 
         # Exponential smoothing on landmarks
         self._smoothed_landmarks = _ema_update(
