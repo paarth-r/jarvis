@@ -13,8 +13,10 @@ from control import MouseController, is_available as control_available
 
 import mediapipe as mp
 
-MP_HANDS = mp.solutions.hands
-MP_DRAW = mp.solutions.drawing_utils
+HAND_CONNECTIONS = [
+    (c.start, c.end)
+    for c in mp.tasks.vision.HandLandmarksConnections.HAND_CONNECTIONS
+]
 
 
 def draw_skeleton(frame, pose, mirror_x: bool = False) -> None:
@@ -32,7 +34,7 @@ def draw_skeleton(frame, pose, mirror_x: bool = False) -> None:
         y = int(pose.landmarks[i, 1] * h)
         lm_px.append((x, y))
     # Draw connections (MediaPipe HAND_CONNECTIONS)
-    for start_idx, end_idx in MP_HANDS.HAND_CONNECTIONS:
+    for start_idx, end_idx in HAND_CONNECTIONS:
         if 0 <= start_idx < len(lm_px) and 0 <= end_idx < len(lm_px):
             cv2.line(
                 frame,
