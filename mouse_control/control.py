@@ -16,6 +16,9 @@ try:
         kCGEventLeftMouseDragged,
         kCGEventMouseMoved,
         kCGMouseButtonLeft,
+        kCGEventRightMouseDown,
+        kCGEventRightMouseUp,
+        kCGMouseButtonRight,
         CGEventCreateScrollWheelEvent,
         CGDisplayBounds,
         CGMainDisplayID,
@@ -194,6 +197,18 @@ class MouseController:
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseDown, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)
+        CGEventPost(kCGHIDEventTap, event)
+
+    def right_click(self, norm_x: float, norm_y: float) -> None:
+        """Perform a right click at the smoothed position."""
+        x, y = self._update_smooth_and_to_screen(norm_x, norm_y)
+        x, y = self._clip_to_screen(x, y)
+        if not _QUARTZ_AVAILABLE:
+            return
+        self._last_emit_x, self._last_emit_y = x, y
+        event = CGEventCreateMouseEvent(None, kCGEventRightMouseDown, (x, y), kCGMouseButtonRight)
+        CGEventPost(kCGHIDEventTap, event)
+        event = CGEventCreateMouseEvent(None, kCGEventRightMouseUp, (x, y), kCGMouseButtonRight)
         CGEventPost(kCGHIDEventTap, event)
 
     def scroll(self, delta_y: float) -> None:

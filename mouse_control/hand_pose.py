@@ -29,7 +29,8 @@ class HandPose:
     """Per-frame hand pose output."""
     landmarks: np.ndarray  # (21, 3) normalized x,y,z
     thumb_index_dist: float
-    thumb_pinky_dist: float  # for thumb+pinky pinch (click)
+    thumb_middle_dist: float
+    thumb_pinky_dist: float
     palm_size: float
     velocity_xy: np.ndarray  # (2,) smoothed velocity in normalized coords
     handedness: str  # "Left" or "Right"
@@ -54,7 +55,7 @@ class HandPoseEstimator:
             running_mode=mp.tasks.vision.RunningMode.VIDEO,
             num_hands=1,
             min_hand_detection_confidence=min_detection_confidence,
-            min_hand_presence_confidence=min_detection_confidence,
+            min_hand_presence_confidence=0.5,
             min_tracking_confidence=min_tracking_confidence,
         )
         self._landmarker = mp.tasks.vision.HandLandmarker.create_from_options(options)
@@ -67,7 +68,8 @@ class HandPoseEstimator:
         self._frame_idx = 0
 
     def process(self, rgb_frame: np.ndarray, timestamp: float) -> Optional[HandPose]:
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+        rgb_contiguous = np.ascontiguousarray(rgb_frame)
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_contiguous)
         timestamp_ms = int(self._frame_idx * (1000 / 30))
         self._frame_idx += 1
         results = self._landmarker.detect_for_video(mp_image, timestamp_ms)
@@ -80,7 +82,7 @@ class HandPoseEstimator:
             if results.handedness
             else "Unknown"
         )
-        if handedness != "Left":
+        if handedness not in ("Left", "Right"):
             self.reset()
             return None
         landmarks = np.array([[p.x, p.y, p.z] for p in lm_list], dtype=np.float64)
@@ -94,6 +96,9 @@ class HandPoseEstimator:
         # Key distances (normalized 0–1 space)
         thumb_index_dist = float(
             np.linalg.norm(landmarks[THUMB_TIP, :2] - landmarks[INDEX_TIP, :2])
+        )
+        thumb_middle_dist = float(
+            np.linalg.norm(landmarks[THUMB_TIP, :2] - landmarks[MIDDLE_TIP, :2])
         )
         thumb_pinky_dist = float(
             np.linalg.norm(landmarks[THUMB_TIP, :2] - landmarks[PINKY_TIP, :2])
@@ -120,6 +125,7 @@ class HandPoseEstimator:
         return HandPose(
             landmarks=landmarks,
             thumb_index_dist=thumb_index_dist,
+            thumb_middle_dist=thumb_middle_dist,
             thumb_pinky_dist=thumb_pinky_dist,
             palm_size=palm_size,
             velocity_xy=velocity_xy,

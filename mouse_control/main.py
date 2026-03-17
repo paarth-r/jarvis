@@ -88,6 +88,8 @@ def run():
                 controller.move(mx, my)
                 if intent.type == "click":
                     controller.click(mx, my)
+                elif intent.type == "right_click":
+                    controller.right_click(mx, my)
             else:
                 if controller.is_mouse_down:
                     controller.mouse_up(0.5, 0.5)
