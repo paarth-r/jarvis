@@ -1,0 +1,57 @@
+# Jarvis runtime configuration
+
+cameras:
+  left:
+    device: 0
+    width: 1280
+    height: 800
+    fps: 120
+    intrinsics:           # placeholder — replace with calibrated values
+      fx: 910.0
+      fy: 910.0
+      cx: 640.0
+      cy: 400.0
+    extrinsics:           # camera position/orientation in world frame (camera-to-world)
+      R: [[1,0,0],[0,1,0],[0,0,1]]
+      t: [-0.076, 0, 0]   # meters; left camera at -3 inches on X axis
+  right:
+    device: 1
+    width: 1280
+    height: 800
+    fps: 120
+    intrinsics:           # placeholder — replace with calibrated values
+      fx: 910.0
+      fy: 910.0
+      cx: 640.0
+      cy: 400.0
+    extrinsics:
+      R: [[1,0,0],[0,1,0],[0,0,1]]
+      t: [0.076, 0, 0]    # meters; right camera at +3 inches on X axis
+
+modules:
+  stereo_fusion:
+    class: jarvis.modules.stereo_fusion.StereoFusionModule
+    sync_tolerance_ms: 16.0
+    mono_fallback: true
+    mono_depth_m: 0.5
+  gesture_hci:
+    class: jarvis.modules.gesture_hci.GestureHCIModule
+    smoothing: 0.3
+    move_threshold_px: 2.0
+    screen_gain: 2.5
+    pinch_thresh_m: 0.025
+    release_thresh_m: 0.045
+  action_dispatcher:
+    class: jarvis.modules.action_dispatcher.ActionDispatcher
+    cooldown_s: 1.0
+  debug_overlay:
+    class: jarvis.modules.debug_overlay.DebugOverlayModule
+    enabled: false
+
+subprocesses:
+  arm:
+    enabled: false
+    module: jarvis.processes.arm_controller
+  llm:
+    enabled: false
+    module: jarvis.processes.llm_agent
