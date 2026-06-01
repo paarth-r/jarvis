@@ -1,0 +1,9 @@
+opencv-python
+mediapipe
+numpy
+pyyaml
+pyobjc-framework-Quartz
+pynput
+pyautogui
+pytest
+pytest-asyncio
