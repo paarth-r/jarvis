@@ -2,31 +2,34 @@
 
 cameras:
   left:
-    device: 0
+    device: 1             # Hyperform stereo_left = device_index 1
     width: 1280
     height: 800
     fps: 120
-    intrinsics:           # placeholder — replace with calibrated values
-      fx: 910.0
-      fy: 910.0
-      cx: 640.0
-      cy: 400.0
-    extrinsics:           # camera position/orientation in world frame (camera-to-world)
+    intrinsics:           # from Hyperform cameras/constants/stereo_left.json (RMSE 0.368 px)
+      fx: 906.667
+      fy: 908.358
+      cx: 611.627
+      cy: 391.546
+    # distortion k1,k2,p1,p2,k3: [0.045728, -0.073574, 0.000416, -0.001328, 0.012644]
+    # NOTE: StereoFusionModule does not undistort yet — add before trusting metric depth.
+    extrinsics:           # camera-to-world; identity R assumed (no stereo_extrinsics.json yet)
       R: [[1,0,0],[0,1,0],[0,0,1]]
-      t: [-0.076, 0, 0]   # meters; left camera at -3 inches on X axis
+      t: [-0.0762, 0, 0]  # meters; baseline 0.1524 m (6"), left at -B/2
   right:
-    device: 1
+    device: 0             # Hyperform stereo_right = device_index 0
     width: 1280
     height: 800
     fps: 120
-    intrinsics:           # placeholder — replace with calibrated values
-      fx: 910.0
-      fy: 910.0
-      cx: 640.0
-      cy: 400.0
-    extrinsics:
+    intrinsics:           # from Hyperform cameras/constants/stereo_right.json (RMSE 0.409 px)
+      fx: 906.292
+      fy: 907.944
+      cx: 619.908
+      cy: 386.792
+    # distortion k1,k2,p1,p2,k3: [0.044784, -0.071240, -0.0000363, -0.001105, 0.016704]
+    extrinsics:           # camera-to-world; identity R assumed (no stereo_extrinsics.json yet)
       R: [[1,0,0],[0,1,0],[0,0,1]]
-      t: [0.076, 0, 0]    # meters; right camera at +3 inches on X axis
+      t: [0.0762, 0, 0]   # meters; baseline 0.1524 m (6"), right at +B/2
 
 modules:
   stereo_fusion:
