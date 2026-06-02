@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import concurrent.futures
 import os
 from typing import Optional
 
@@ -16,6 +17,21 @@ _DEFAULT_MODEL_PATH = os.path.join(
     "mouse_control", "hand_landmarker.task",
 )
 
+# All HandPoseModule instances share ONE worker thread. MediaPipe's GL/Metal
+# context is not safe across concurrent landmarkers (two contexts doing GPU work
+# at once segfaults on macOS Metal). Serializing every landmarker op — create,
+# detect, close — onto a single thread guarantees they never overlap.
+_shared_executor: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+
+def _get_shared_executor() -> concurrent.futures.ThreadPoolExecutor:
+    global _shared_executor
+    if _shared_executor is None:
+        _shared_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="handpose"
+        )
+    return _shared_executor
+
 
 class HandPoseModule(Module):
     async def setup(self, bus) -> None:
@@ -23,7 +39,10 @@ class HandPoseModule(Module):
         self._camera_id: str = self.config["camera_id"]
         self._model_path: str = self.config.get("model_path", _DEFAULT_MODEL_PATH)
         self._frame_idx: int = 0
-        self._landmarker = self._create_landmarker()
+        self._busy: bool = False
+        self._executor = _get_shared_executor()
+        loop = asyncio.get_event_loop()
+        self._landmarker = await loop.run_in_executor(self._executor, self._create_landmarker)
         self.bus.subscribe(FrameEvent, self._on_frame)
 
     def _create_landmarker(self):
@@ -40,8 +59,15 @@ class HandPoseModule(Module):
     async def _on_frame(self, event: FrameEvent) -> None:
         if event.camera_id != self._camera_id:
             return
+        # Drop frames that arrive while inference is in flight (backpressure).
+        if self._busy:
+            return
+        self._busy = True
         loop = asyncio.get_event_loop()
-        pose_event = await loop.run_in_executor(None, self._process, event)
+        try:
+            pose_event = await loop.run_in_executor(self._executor, self._process, event)
+        finally:
+            self._busy = False
         if pose_event is not None:
             await self.bus.publish(pose_event)
 
@@ -82,4 +108,8 @@ class HandPoseModule(Module):
             await asyncio.sleep(3600)
 
     async def teardown(self) -> None:
-        self._landmarker.close()
+        # Close the landmarker on the shared worker thread (GL context lives
+        # there). The executor itself is shared across modules, so it is not
+        # shut down here — it is reclaimed at process exit.
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(self._executor, self._landmarker.close)
