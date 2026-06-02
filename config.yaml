@@ -47,9 +47,12 @@ modules:
   action_dispatcher:
     class: jarvis.modules.action_dispatcher.ActionDispatcher
     cooldown_s: 1.0
-  debug_overlay:
-    class: jarvis.modules.debug_overlay.DebugOverlayModule
-    enabled: false
+  visualizer:
+    class: jarvis.modules.visualizer.VisualizerModule
+    enabled: false        # opt-in; set true to show windows
+    show_2d: true
+    show_3d: true
+    fps: 30
 
 subprocesses:
   arm:
