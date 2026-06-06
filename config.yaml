@@ -22,8 +22,7 @@ cameras:
       fy: 908.358
       cx: 611.627
       cy: 391.546
-    # distortion k1,k2,p1,p2,k3: [0.045728, -0.073574, 0.000416, -0.001328, 0.012644]
-    # NOTE: StereoFusionModule does not undistort yet — add before trusting metric depth.
+    distortion: [0.045728, -0.073574, 0.000416, -0.001328, 0.012644]  # PLACEHOLDER (mono)
     extrinsics:           # camera-to-world; identity R assumed (no stereo_extrinsics.json yet)
       R: [[1,0,0],[0,1,0],[0,0,1]]
       t: [-0.0762, 0, 0]  # meters; baseline 0.1524 m (6"), left at -B/2
@@ -37,7 +36,7 @@ cameras:
       fy: 907.944
       cx: 619.908
       cy: 386.792
-    # distortion k1,k2,p1,p2,k3: [0.044784, -0.071240, -0.0000363, -0.001105, 0.016704]
+    distortion: [0.044784, -0.071240, -0.0000363, -0.001105, 0.016704]  # PLACEHOLDER (mono)
     extrinsics:           # camera-to-world; identity R assumed (no stereo_extrinsics.json yet)
       R: [[1,0,0],[0,1,0],[0,0,1]]
       t: [0.0762, 0, 0]   # meters; baseline 0.1524 m (6"), right at +B/2

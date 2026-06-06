@@ -81,6 +81,7 @@ class Supervisor:
                 "fps": cam.fps,
                 "intrinsics": cam.intrinsics,
                 "extrinsics": cam.extrinsics,
+                "distortion": cam.distortion,
                 "source": cam.source,
                 "path": cam.path,
             }

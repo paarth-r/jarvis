@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, List
 import yaml
 
 
@@ -12,6 +12,7 @@ class CameraConfig:
     fps: int
     intrinsics: Dict[str, float]
     extrinsics: Dict[str, Any]
+    distortion: List[float] = field(default_factory=list)  # k1,k2,p1,p2,k3 (empty = none)
     source: str = "device"   # "device" (live) | "video"/"file"/"images" (replay)
     path: str = ""           # file or image-directory path when source != device
 
@@ -50,6 +51,7 @@ def load_config(path: str) -> JarvisConfig:
             fps=cam.get("fps", 30),
             intrinsics=cam.get("intrinsics", {}),
             extrinsics=cam.get("extrinsics", {}),
+            distortion=list(cam.get("distortion", []) or []),
             source=cam.get("source", "device"),
             path=cam.get("path", ""),
         )

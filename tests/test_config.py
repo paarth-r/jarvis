@@ -15,6 +15,7 @@ cameras:
       fy: 910.0
       cx: 640.0
       cy: 400.0
+    distortion: [0.1, -0.2, 0.0, 0.0, 0.05]
     extrinsics:
       R: [[1,0,0],[0,1,0],[0,0,1]]
       t: [-0.076, 0, 0]
@@ -70,6 +71,9 @@ def test_cameras_loaded():
         assert left.fps == 120
         assert left.intrinsics["fx"] == 910.0
         assert left.extrinsics["t"] == [-0.076, 0, 0]
+        assert left.distortion == [0.1, -0.2, 0.0, 0.0, 0.05]
+        # right has no distortion declared → defaults to empty
+        assert cfg.cameras["right"].distortion == []
     finally:
         os.unlink(path)
 

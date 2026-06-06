@@ -66,19 +66,35 @@ class StereoFusionModule(Module):
                 best = event
         return best
 
-    def _build_proj(self, cam_cfg: dict) -> np.ndarray:
+    @staticmethod
+    def _intrinsic_matrix(cam_cfg: dict) -> np.ndarray:
         intr = cam_cfg["intrinsics"]
-        K = np.array([
+        return np.array([
             [intr["fx"], 0.0, intr["cx"]],
             [0.0, intr["fy"], intr["cy"]],
             [0.0, 0.0, 1.0],
         ], dtype=np.float64)
+
+    def _build_proj(self, cam_cfg: dict) -> np.ndarray:
+        K = self._intrinsic_matrix(cam_cfg)
         # Config stores camera-to-world; convert to world-to-camera for cv2
         R_c2w = np.array(cam_cfg["extrinsics"]["R"], dtype=np.float64)
         t_c2w = np.array(cam_cfg["extrinsics"]["t"], dtype=np.float64)
         R_wc = R_c2w.T
         t_wc = (-R_c2w.T @ t_c2w).reshape(3, 1)
         return K @ np.hstack([R_wc, t_wc])
+
+    def _undistort_px(self, pts: np.ndarray, cam_cfg: dict) -> np.ndarray:
+        """Undistort (2, N) pixel coords using the camera's distortion model.
+        Returns undistorted pixel coords (same shape); no-op when no coeffs."""
+        dist = cam_cfg.get("distortion")
+        if not dist:
+            return pts
+        K = self._intrinsic_matrix(cam_cfg)
+        d = np.array(dist, dtype=np.float64)
+        src = np.ascontiguousarray(pts.T.reshape(-1, 1, 2))
+        und = cv2.undistortPoints(src, K, d, P=K)
+        return und.reshape(-1, 2).T
 
     def _triangulate(self, matched: Dict[str, PoseEvent]) -> WorldPoseEvent:
         ids = list(matched.keys())
@@ -91,8 +107,8 @@ class StereoFusionModule(Module):
         def to_px(lm2d: np.ndarray, cfg: dict) -> np.ndarray:
             return (lm2d[:, :2] * np.array([cfg["width"], cfg["height"]])).T.astype(np.float64)
 
-        pts_a = to_px(matched[cam_a].landmarks_2d, cfg_a)
-        pts_b = to_px(matched[cam_b].landmarks_2d, cfg_b)
+        pts_a = self._undistort_px(to_px(matched[cam_a].landmarks_2d, cfg_a), cfg_a)
+        pts_b = self._undistort_px(to_px(matched[cam_b].landmarks_2d, cfg_b), cfg_b)
 
         pts4d = cv2.triangulatePoints(P1, P2, pts_a, pts_b)
         pts3d = (pts4d[:3] / pts4d[3]).T.astype(np.float32)

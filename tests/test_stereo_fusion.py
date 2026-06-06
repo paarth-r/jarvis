@@ -1,5 +1,7 @@
 import asyncio
+import copy
 import numpy as np
+import cv2
 import pytest
 from jarvis.runtime.event_bus import EventBus
 from jarvis.modules.stereo_fusion import StereoFusionModule
@@ -39,11 +41,35 @@ def _project_world_to_norm(world_pt, cam_cfg):
     return lm
 
 
-async def _make_module(bus):
+def _project_distorted(world_pt, cam_cfg):
+    """Project a world point to normalized coords WITH lens distortion applied."""
+    R_c2w = np.array(cam_cfg["extrinsics"]["R"], dtype=np.float64)
+    t_c2w = np.array(cam_cfg["extrinsics"]["t"], dtype=np.float64)
+    R_wc = R_c2w.T
+    t_wc = -R_c2w.T @ t_c2w
+    rvec, _ = cv2.Rodrigues(R_wc)
+    intr = cam_cfg["intrinsics"]
+    w, h = cam_cfg["width"], cam_cfg["height"]
+    K = np.array([[intr["fx"], 0, intr["cx"]],
+                  [0, intr["fy"], intr["cy"]],
+                  [0, 0, 1]], dtype=np.float64)
+    d = np.array(cam_cfg["distortion"], dtype=np.float64)
+    img, _ = cv2.projectPoints(
+        np.array([world_pt], dtype=np.float64).reshape(-1, 1, 3),
+        rvec, t_wc.reshape(3, 1), K, d,
+    )
+    u, v = img.reshape(-1)[:2]
+    lm = np.zeros((21, 3), dtype=np.float32)
+    lm[:, 0] = u / w
+    lm[:, 1] = v / h
+    return lm
+
+
+async def _make_module(bus, cameras=CAMERAS):
     mod = StereoFusionModule("stereo_fusion", {
         "sync_tolerance_ms": 16.0,
         "mono_fallback": True,
-        "cameras": CAMERAS,
+        "cameras": cameras,
     })
     await mod.setup(bus)
     return mod
@@ -79,6 +105,67 @@ async def test_full_stereo_triangulates_correctly():
     assert len(received) == 1
     assert received[0].confidence == 1.0
     # All 21 landmarks were projected from the same world point; wrist (0) should round-trip
+    assert np.allclose(received[0].landmarks_3d[0], world_pt, atol=0.02)
+
+
+@pytest.mark.asyncio
+async def test_undistortion_recovers_distorted_observations():
+    cams = copy.deepcopy(CAMERAS)
+    cams["left"]["distortion"] = [0.045728, -0.073574, 0.000416, -0.001328, 0.012644]
+    cams["right"]["distortion"] = [0.044784, -0.071240, -0.0000363, -0.001105, 0.016704]
+
+    bus = EventBus()
+    received = []
+
+    async def on_world(e):
+        received.append(e)
+
+    bus.subscribe(WorldPoseEvent, on_world)
+    await _make_module(bus, cameras=cams)
+
+    world_pt = [0.12, 0.08, 0.5]  # off-center so distortion matters
+    await bus.publish(PoseEvent(camera_id="right",
+                                landmarks_2d=_project_distorted(world_pt, cams["right"]),
+                                timestamp=1.0, hand_side="right"))
+    await bus.publish(PoseEvent(camera_id="left",
+                                landmarks_2d=_project_distorted(world_pt, cams["left"]),
+                                timestamp=1.005, hand_side="right"))
+
+    assert len(received) == 1
+    assert received[0].confidence == 1.0
+    assert np.allclose(received[0].landmarks_3d[0], world_pt, atol=0.01)
+
+
+@pytest.mark.asyncio
+async def test_non_identity_rotation_triangulates():
+    # Both cameras tilted 10° about Y (still a valid, consistent stereo geometry).
+    theta = np.deg2rad(10.0)
+    Ry = [[np.cos(theta), 0, np.sin(theta)],
+          [0, 1, 0],
+          [-np.sin(theta), 0, np.cos(theta)]]
+    cams = copy.deepcopy(CAMERAS)
+    cams["left"]["extrinsics"]["R"] = Ry
+    cams["right"]["extrinsics"]["R"] = Ry
+
+    bus = EventBus()
+    received = []
+
+    async def on_world(e):
+        received.append(e)
+
+    bus.subscribe(WorldPoseEvent, on_world)
+    await _make_module(bus, cameras=cams)
+
+    world_pt = [0.05, 0.0, 0.5]
+    await bus.publish(PoseEvent(camera_id="right",
+                               landmarks_2d=_project_world_to_norm(world_pt, cams["right"]),
+                               timestamp=1.0, hand_side="right"))
+    await bus.publish(PoseEvent(camera_id="left",
+                               landmarks_2d=_project_world_to_norm(world_pt, cams["left"]),
+                               timestamp=1.005, hand_side="right"))
+
+    assert len(received) == 1
+    assert received[0].confidence == 1.0
     assert np.allclose(received[0].landmarks_3d[0], world_pt, atol=0.02)
 
 
