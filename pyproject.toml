@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-hci"
+version = "0.1.0"
+description = "Vision-based human-computer interaction runtime: stereo hand tracking to cursor, gestures, and pointing."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Paarth Rajpal", email = "paarth.rajpal@gmail.com" }]
+keywords = ["computer-vision", "mediapipe", "stereo", "hand-tracking", "hci", "gesture"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS :: MacOS X",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+
+dependencies = [
+    "opencv-python",
+    "mediapipe",
+    "numpy",
+    "pyyaml",
+    "pynput",
+    "pyautogui",
+    "matplotlib",
+    "pyobjc-framework-Quartz; sys_platform == 'darwin'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio"]
+
+[project.scripts]
+jarvis = "jarvis.main:main"
+
+[project.urls]
+Homepage = "https://github.com/paarth-r/jarvis"
+
+[tool.setuptools]
+packages = [
+    "jarvis",
+    "jarvis.modules",
+    "jarvis.processes",
+    "jarvis.runtime",
+    "mouse_control",
+]
+
+[tool.setuptools.package-data]
+mouse_control = ["*.task"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
