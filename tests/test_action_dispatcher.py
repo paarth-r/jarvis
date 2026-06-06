@@ -3,7 +3,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 from jarvis.runtime.event_bus import EventBus
 from jarvis.modules.action_dispatcher import ActionDispatcher
-from jarvis.events import ActionEvent
+from jarvis.events import ActionEvent, PointEvent
+import numpy as np
 import time
 
 
@@ -28,6 +29,34 @@ async def test_raycast_action_calls_hotkey():
             action_type="raycast", params={}, timestamp=time.perf_counter()
         ))
         mock_pyautogui.hotkey.assert_called_once_with("command", "space")
+
+
+@pytest.mark.asyncio
+async def test_point_event_fires_configured_action():
+    bus = EventBus()
+    mod = ActionDispatcher("action_dispatcher", {"on_point_action": "raycast"})
+    await mod.setup(bus)
+
+    with patch("jarvis.modules.action_dispatcher.pyautogui") as mock_pyautogui:
+        await bus.publish(PointEvent(
+            world_pos=np.zeros(3), direction=np.array([0, 0, 1.0]),
+            target=None, confidence=1.0, timestamp=time.perf_counter(),
+        ))
+        mock_pyautogui.hotkey.assert_called_once_with("command", "space")
+
+
+@pytest.mark.asyncio
+async def test_point_event_disabled_when_no_action():
+    bus = EventBus()
+    mod = ActionDispatcher("action_dispatcher", {"on_point_action": ""})
+    await mod.setup(bus)
+
+    with patch("jarvis.modules.action_dispatcher.pyautogui") as mock_pyautogui:
+        await bus.publish(PointEvent(
+            world_pos=np.zeros(3), direction=np.array([0, 0, 1.0]),
+            target=None, confidence=1.0, timestamp=time.perf_counter(),
+        ))
+        mock_pyautogui.hotkey.assert_not_called()
 
 
 @pytest.mark.asyncio

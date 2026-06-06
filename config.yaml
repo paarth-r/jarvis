@@ -54,9 +54,13 @@ modules:
     screen_gain: 2.5
     pinch_thresh_m: 0.025
     release_thresh_m: 0.045
+  pointing:
+    class: jarvis.modules.pointing.PointingModule
+    enabled: true
   action_dispatcher:
     class: jarvis.modules.action_dispatcher.ActionDispatcher
     cooldown_s: 1.0
+    on_point_action: raycast   # action fired on a pointing gesture ("" disables)
   visualizer:
     class: jarvis.modules.visualizer.VisualizerModule
     enabled: false        # opt-in; set true to show windows

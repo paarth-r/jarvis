@@ -7,7 +7,7 @@ from typing import Callable, Dict
 import pyautogui
 from pynput.keyboard import Controller, Key
 
-from ..events import ActionEvent
+from ..events import ActionEvent, PointEvent
 from ..runtime.module_base import Module
 
 logger = logging.getLogger(__name__)
@@ -51,18 +51,30 @@ class ActionDispatcher(Module):
     async def setup(self, bus) -> None:
         await super().setup(bus)
         self._cooldown: float = self.config.get("cooldown_s", 1.0)
+        # Action fired when a pointing gesture is seen ("" / None disables it).
+        self._on_point_action: str = self.config.get("on_point_action", "raycast")
         self._last_ts: float = -float("inf")
         self.bus.subscribe(ActionEvent, self._on_action)
+        self.bus.subscribe(PointEvent, self._on_point)
 
-    async def _on_action(self, event: ActionEvent) -> None:
+    def _fire(self, action_type: str) -> bool:
+        """Run an action if past cooldown. Returns True if it fired."""
         if time.perf_counter() - self._last_ts < self._cooldown:
-            return
-        handler = HANDLERS.get(event.action_type)
+            return False
+        handler = HANDLERS.get(action_type)
         if handler is None:
-            logger.warning("Unknown action: %s", event.action_type)
-            return
+            logger.warning("Unknown action: %s", action_type)
+            return False
         handler()
         self._last_ts = time.perf_counter()
+        return True
+
+    async def _on_action(self, event: ActionEvent) -> None:
+        self._fire(event.action_type)
+
+    async def _on_point(self, event: PointEvent) -> None:
+        if self._on_point_action:
+            self._fire(self._on_point_action)
 
     async def run(self) -> None:
         while True:
