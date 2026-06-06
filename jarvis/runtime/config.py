@@ -12,6 +12,8 @@ class CameraConfig:
     fps: int
     intrinsics: Dict[str, float]
     extrinsics: Dict[str, Any]
+    source: str = "device"   # "device" (live) | "video"/"file"/"images" (replay)
+    path: str = ""           # file or image-directory path when source != device
 
 
 @dataclass
@@ -42,12 +44,14 @@ def load_config(path: str) -> JarvisConfig:
     cameras: Dict[str, CameraConfig] = {}
     for name, cam in (raw.get("cameras") or {}).items():
         cameras[name] = CameraConfig(
-            device=cam["device"],
+            device=cam.get("device", 0),
             width=cam.get("width", 1280),
             height=cam.get("height", 800),
             fps=cam.get("fps", 30),
             intrinsics=cam.get("intrinsics", {}),
             extrinsics=cam.get("extrinsics", {}),
+            source=cam.get("source", "device"),
+            path=cam.get("path", ""),
         )
 
     modules: Dict[str, ModuleConfig] = {}

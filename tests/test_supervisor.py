@@ -60,6 +60,21 @@ def test_build_modules_injects_hand_pose_config():
     assert hp.config["tracking_confidence"] == 0.4
 
 
+def test_build_modules_picks_camera_source_by_config():
+    from jarvis.modules.camera import CameraModule
+    from jarvis.modules.file_camera import FileCameraModule
+    live = CameraConfig(device=0, width=1280, height=800, fps=30, intrinsics={}, extrinsics={})
+    replay = CameraConfig(device=0, width=1280, height=800, fps=30, intrinsics={}, extrinsics={},
+                          source="video", path="/tmp/clip.mp4")
+    cfg = JarvisConfig(cameras={"live": live, "rep": replay}, modules={}, subprocesses={})
+    sup = Supervisor(cfg)
+    sup._build_modules()
+    by_id = {m.module_id: m for m in sup._modules}
+    assert isinstance(by_id["camera_live"], CameraModule)
+    assert isinstance(by_id["camera_rep"], FileCameraModule)
+    assert by_id["camera_rep"].config["path"] == "/tmp/clip.mp4"
+
+
 @pytest.mark.asyncio
 async def test_supervisor_bus_is_shared():
     cfg = _empty_config()

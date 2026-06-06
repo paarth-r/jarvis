@@ -66,9 +66,12 @@ class Supervisor:
     # ── private ────────────────────────────────────────────────────────────
     def _build_modules(self) -> None:
         from ..modules.camera import CameraModule
+        from ..modules.file_camera import FileCameraModule
         from ..modules.hand_pose import HandPoseModule
 
-        # One CameraModule + HandPoseModule per declared camera
+        _REPLAY_SOURCES = {"video", "file", "images"}
+
+        # One camera source + HandPoseModule per declared camera
         cameras_dict = {
             cam_id: {
                 "camera_id": cam_id,
@@ -78,12 +81,15 @@ class Supervisor:
                 "fps": cam.fps,
                 "intrinsics": cam.intrinsics,
                 "extrinsics": cam.extrinsics,
+                "source": cam.source,
+                "path": cam.path,
             }
             for cam_id, cam in self._config.cameras.items()
         }
 
         for cam_id, cam in self._config.cameras.items():
-            self._modules.append(CameraModule(f"camera_{cam_id}", cameras_dict[cam_id]))
+            cam_cls = FileCameraModule if cam.source in _REPLAY_SOURCES else CameraModule
+            self._modules.append(cam_cls(f"camera_{cam_id}", cameras_dict[cam_id]))
             self._modules.append(HandPoseModule(
                 f"hand_pose_{cam_id}",
                 {"camera_id": cam_id, **self._config.hand_pose},
