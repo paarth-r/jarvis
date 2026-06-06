@@ -45,6 +45,21 @@ async def test_supervisor_calls_lifecycle():
     assert mod.teardown_called
 
 
+def test_build_modules_injects_hand_pose_config():
+    from jarvis.modules.hand_pose import HandPoseModule
+    cam = CameraConfig(device=0, width=1280, height=800, fps=30, intrinsics={}, extrinsics={})
+    cfg = JarvisConfig(
+        cameras={"left": cam}, modules={}, subprocesses={},
+        hand_pose={"detection_confidence": 0.3, "tracking_confidence": 0.4},
+    )
+    sup = Supervisor(cfg)
+    sup._build_modules()
+    hp = next(m for m in sup._modules if isinstance(m, HandPoseModule))
+    assert hp.config["camera_id"] == "left"
+    assert hp.config["detection_confidence"] == 0.3
+    assert hp.config["tracking_confidence"] == 0.4
+
+
 @pytest.mark.asyncio
 async def test_supervisor_bus_is_shared():
     cfg = _empty_config()

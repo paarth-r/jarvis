@@ -45,6 +45,10 @@ subprocesses:
   arm:
     enabled: false
     module: jarvis.processes.arm_controller
+
+hand_pose:
+  detection_confidence: 0.5
+  tracking_confidence: 0.6
 """
 
 
@@ -92,6 +96,25 @@ def test_subprocesses_loaded():
         assert "arm" in cfg.subprocesses
         assert cfg.subprocesses["arm"].enabled is False
         assert cfg.subprocesses["arm"].module == "jarvis.processes.arm_controller"
+    finally:
+        os.unlink(path)
+
+
+def test_hand_pose_loaded():
+    path = _write_tmp(FULL_CONFIG)
+    try:
+        cfg = load_config(path)
+        assert cfg.hand_pose["detection_confidence"] == 0.5
+        assert cfg.hand_pose["tracking_confidence"] == 0.6
+    finally:
+        os.unlink(path)
+
+
+def test_hand_pose_defaults_to_empty_when_absent():
+    path = _write_tmp("cameras: {}\nmodules: {}\nsubprocesses: {}\n")
+    try:
+        cfg = load_config(path)
+        assert cfg.hand_pose == {}
     finally:
         os.unlink(path)
 

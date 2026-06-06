@@ -32,6 +32,7 @@ class JarvisConfig:
     cameras: Dict[str, CameraConfig]
     modules: Dict[str, ModuleConfig]
     subprocesses: Dict[str, SubprocessConfig]
+    hand_pose: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_config(path: str) -> JarvisConfig:
@@ -64,4 +65,9 @@ def load_config(path: str) -> JarvisConfig:
             module=sub.get("module", ""),
         )
 
-    return JarvisConfig(cameras=cameras, modules=modules, subprocesses=subprocesses)
+    hand_pose: Dict[str, Any] = dict(raw.get("hand_pose") or {})
+
+    return JarvisConfig(
+        cameras=cameras, modules=modules, subprocesses=subprocesses,
+        hand_pose=hand_pose,
+    )

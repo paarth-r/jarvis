@@ -17,6 +17,45 @@ def _make_pose_module(camera_id="left"):
 
 
 @pytest.mark.asyncio
+async def test_detection_confidence_defaults_to_0_5():
+    bus = EventBus()
+    mod = _make_pose_module(camera_id="left")
+    await mod.setup(bus)
+    assert mod._detection_confidence == 0.5
+    assert mod._tracking_confidence == 0.6
+
+
+@pytest.mark.asyncio
+async def test_detection_confidence_from_config():
+    bus = EventBus()
+    mod = HandPoseModule("hand_pose_left", {"camera_id": "left", "detection_confidence": 0.3})
+    mod._create_landmarker = lambda: MagicMock()
+    await mod.setup(bus)
+    assert mod._detection_confidence == 0.3
+
+
+@pytest.mark.asyncio
+async def test_process_accepts_both_mono_and_color_frames():
+    bus = EventBus()
+    mod = _make_pose_module(camera_id="left")
+
+    class _NoHand:
+        hand_landmarks = []
+        handedness = []
+
+    fake = MagicMock()
+    fake.detect_for_video.return_value = _NoHand()
+    mod._create_landmarker = lambda: fake
+    await mod.setup(bus)
+
+    mono = np.zeros((800, 1280), dtype=np.uint8)          # HxW mono
+    color = np.zeros((800, 1280, 3), dtype=np.uint8)      # HxWx3 BGR color
+    assert mod._process(FrameEvent(camera_id="left", frame=mono, timestamp=1.0)) is None
+    assert mod._process(FrameEvent(camera_id="left", frame=color, timestamp=2.0)) is None
+    assert fake.detect_for_video.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_wrong_camera_id_ignored():
     bus = EventBus()
     received = []

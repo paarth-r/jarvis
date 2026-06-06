@@ -38,6 +38,8 @@ class HandPoseModule(Module):
         await super().setup(bus)
         self._camera_id: str = self.config["camera_id"]
         self._model_path: str = self.config.get("model_path", _DEFAULT_MODEL_PATH)
+        self._detection_confidence: float = self.config.get("detection_confidence", 0.5)
+        self._tracking_confidence: float = self.config.get("tracking_confidence", 0.6)
         self._frame_idx: int = 0
         self._busy: bool = False
         self._executor = _get_shared_executor()
@@ -50,9 +52,9 @@ class HandPoseModule(Module):
             base_options=mp.tasks.BaseOptions(model_asset_path=self._model_path),
             running_mode=mp.tasks.vision.RunningMode.VIDEO,
             num_hands=1,
-            min_hand_detection_confidence=self.config.get("min_detection_confidence", 0.7),
-            min_hand_presence_confidence=self.config.get("min_detection_confidence", 0.7),
-            min_tracking_confidence=self.config.get("min_tracking_confidence", 0.6),
+            min_hand_detection_confidence=self._detection_confidence,
+            min_hand_presence_confidence=self._detection_confidence,
+            min_tracking_confidence=self._tracking_confidence,
         )
         return mp.tasks.vision.HandLandmarker.create_from_options(options)
 
@@ -72,7 +74,7 @@ class HandPoseModule(Module):
             await self.bus.publish(pose_event)
 
     def _process(self, event: FrameEvent) -> Optional[PoseEvent]:
-        # OV9281 outputs mono; convert to RGB for MediaPipe
+        # Accept mono (HxW) or color (HxWx3 BGR) frames; MediaPipe wants RGB.
         if event.frame.ndim == 2:
             rgb = cv2.cvtColor(event.frame, cv2.COLOR_GRAY2RGB)
         else:

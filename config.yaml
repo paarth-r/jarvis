@@ -1,12 +1,23 @@
 # Jarvis runtime configuration
 
+# Per-camera MediaPipe hand detection tuning (applied to every HandPoseModule).
+hand_pose:
+  detection_confidence: 0.5   # lower = detects more readily; tune up for color if needed
+  tracking_confidence: 0.6
+
+# ACTIVE RIG: color stereo pair (replaced the mono OV9281s).
+# TODO(calibration): the intrinsics/distortion below are the OLD MONO calibration
+#   reused as placeholders. 3D shape is right but metric depth is approximate until
+#   the color pair is charuco-calibrated. Replace fx/fy/cx/cy + distortion then.
+# TODO(devices): confirm the color cameras' device indices when connected — the
+#   indices below were the mono mapping and may differ for the color rig.
 cameras:
   left:
-    device: 1             # Hyperform stereo_left = device_index 1
+    device: 1             # CONFIRM for color rig (was mono stereo_left)
     width: 1280
     height: 800
     fps: 120
-    intrinsics:           # from Hyperform cameras/constants/stereo_left.json (RMSE 0.368 px)
+    intrinsics:           # PLACEHOLDER (mono stereo_left.json) — recalibrate for color
       fx: 906.667
       fy: 908.358
       cx: 611.627
@@ -17,11 +28,11 @@ cameras:
       R: [[1,0,0],[0,1,0],[0,0,1]]
       t: [-0.0762, 0, 0]  # meters; baseline 0.1524 m (6"), left at -B/2
   right:
-    device: 0             # Hyperform stereo_right = device_index 0
+    device: 0             # CONFIRM for color rig (was mono stereo_right)
     width: 1280
     height: 800
     fps: 120
-    intrinsics:           # from Hyperform cameras/constants/stereo_right.json (RMSE 0.409 px)
+    intrinsics:           # PLACEHOLDER (mono stereo_right.json) — recalibrate for color
       fx: 906.292
       fy: 907.944
       cx: 619.908

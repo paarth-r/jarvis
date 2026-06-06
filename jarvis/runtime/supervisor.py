@@ -84,7 +84,10 @@ class Supervisor:
 
         for cam_id, cam in self._config.cameras.items():
             self._modules.append(CameraModule(f"camera_{cam_id}", cameras_dict[cam_id]))
-            self._modules.append(HandPoseModule(f"hand_pose_{cam_id}", {"camera_id": cam_id}))
+            self._modules.append(HandPoseModule(
+                f"hand_pose_{cam_id}",
+                {"camera_id": cam_id, **self._config.hand_pose},
+            ))
 
         # Declared modules — inject cameras into every module's config
         for mod_id, mod_cfg in self._config.modules.items():
