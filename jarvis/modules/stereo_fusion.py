@@ -47,7 +47,7 @@ class StereoFusionModule(Module):
             if best is not None:
                 matched[cid] = best
 
-        if len(matched) == len(camera_ids):
+        if len(matched) == len(camera_ids) and len(camera_ids) >= 2:
             return self._triangulate(matched)
 
         if self._mono_fallback and matched:

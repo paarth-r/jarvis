@@ -192,6 +192,27 @@ async def test_mono_fallback_when_one_camera_missing():
 
 
 @pytest.mark.asyncio
+async def test_single_camera_config_mono_projects():
+    # A one-camera rig must mono-project, never attempt triangulation
+    bus = EventBus()
+    received = []
+
+    async def on_world(e: WorldPoseEvent):
+        received.append(e)
+
+    bus.subscribe(WorldPoseEvent, on_world)
+    await _make_module(bus, cameras={"mono": CAMERAS["left"]})
+
+    lm = _project_world_to_norm([0.0, 0.0, 0.5], CAMERAS["left"])
+    await bus.publish(PoseEvent(
+        camera_id="mono", landmarks_2d=lm, timestamp=1.0, hand_side="right",
+    ))
+
+    assert len(received) == 1
+    assert received[0].confidence == 0.5
+
+
+@pytest.mark.asyncio
 async def test_out_of_tolerance_poses_not_fused():
     bus = EventBus()
     received = []
