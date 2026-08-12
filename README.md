@@ -2,8 +2,9 @@
 
 Vision-based human–computer interaction runtime. A stereo camera pair watches your
 hands; Jarvis tracks them with MediaPipe, triangulates the landmarks into 3D world
-coordinates, and turns gestures into actions — cursor movement, pinch-to-click, and
-pointing — with a live 2D + 3D visualizer.
+coordinates, and turns gestures into actions — cursor movement, pinch to click and
+drag (pinch holds the button; release lets go), and pointing — with a live 2D + 3D
+visualizer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -89,7 +90,7 @@ cameras:
 | `CameraModule` / `FileCameraModule` | device/file → `FrameEvent` |
 | `HandPoseModule` | `FrameEvent` → `PoseEvent` (per-camera 2D landmarks) |
 | `StereoFusionModule` | `PoseEvent` → `WorldPoseEvent` (3D triangulation, undistortion, mono fallback) |
-| `GestureHCIModule` | `WorldPoseEvent` → cursor move + pinch-click, `IntentEvent` |
+| `GestureHCIModule` | `WorldPoseEvent` → cursor move + pinch press/drag/release, `IntentEvent` |
 | `PointingModule` | `WorldPoseEvent` → `PointEvent` (index-finger ray) |
 | `ActionDispatcher` | `ActionEvent` / `PointEvent` → OS action (with cooldown) |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |

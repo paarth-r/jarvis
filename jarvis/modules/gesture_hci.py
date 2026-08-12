@@ -21,7 +21,8 @@ class _PinchState(Enum):
 
 
 class PinchFSM:
-    """Pure FSM — no hardware dependency. Returns 'click' on transition OPEN→HELD."""
+    """Pure FSM — no hardware dependency. Returns 'press' on OPEN→HELD and
+    'release' on HELD→OPEN, enabling click-and-drag."""
 
     def __init__(
         self,
@@ -36,12 +37,13 @@ class PinchFSM:
         if self._state == _PinchState.OPEN:
             if distance < self._thresh:
                 self._state = _PinchState.HELD
-                return "click"
+                return "press"
             return "idle"
 
         if self._state == _PinchState.HELD:
             if distance > self._release:
                 self._state = _PinchState.OPEN
+                return "release"
             return "idle"
 
         return "idle"
@@ -77,8 +79,12 @@ class GestureHCIModule(Module):
         dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
         intent = self._fsm.update(dist)
 
-        if intent == "click":
-            self._controller.click(norm_x, norm_y)
+        # Pinch = button held: close presses, movement while held drags
+        # (MouseController.move emits drag events while down), open releases.
+        if intent == "press":
+            self._controller.mouse_down(norm_x, norm_y)
+        elif intent == "release":
+            self._controller.mouse_up(norm_x, norm_y)
 
         await self.bus.publish(IntentEvent(
             type=intent,

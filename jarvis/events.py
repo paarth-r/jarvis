@@ -31,7 +31,7 @@ class WorldPoseEvent:
 
 @dataclass
 class IntentEvent:
-    type: str        # "click" | "move" | "gesture" | "point" | "command"
+    type: str        # "press" | "release" | "idle" | "move" | "gesture" | "point" | "command"
     confidence: float
     payload: dict
     timestamp: float
