@@ -6,49 +6,66 @@ from jarvis.modules.gesture_hci import PinchFSM, GestureHCIModule, THUMB_TIP, IN
 from jarvis.runtime.event_bus import EventBus
 
 
+def _fsm():
+    return PinchFSM(pinch_thresh=0.02, release_thresh=0.04, hold_delay=0.2)
+
+
 def test_idle_when_far():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    assert fsm.update(0.10) == "idle"
-    assert fsm.update(0.08) == "idle"
+    fsm = _fsm()
+    assert fsm.update(0.10, 1.0) == "idle"
+    assert fsm.update(0.08, 1.1) == "idle"
 
 
-def test_press_on_pinch():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    assert fsm.update(0.10) == "idle"
-    assert fsm.update(0.01) == "press"   # transition: open → held
+def test_quick_pinch_is_click():
+    fsm = _fsm()
+    assert fsm.update(0.10, 1.0) == "idle"
+    assert fsm.update(0.01, 1.1) == "idle"     # pinch closes — pending, nothing yet
+    assert fsm.update(0.10, 1.2) == "click"    # opens within hold delay — click
 
 
-def test_no_repeat_press_while_held():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    fsm.update(0.10)
-    fsm.update(0.01)          # press
-    assert fsm.update(0.01) == "idle"   # still held — no second press
-    assert fsm.update(0.01) == "idle"
+def test_held_pinch_becomes_drag():
+    fsm = _fsm()
+    fsm.update(0.01, 1.0)                       # pinch closes — pending
+    assert fsm.update(0.01, 1.1) == "idle"      # 0.1s — still pending
+    assert fsm.update(0.01, 1.25) == "press"    # >0.2s held — drag starts
+    assert fsm.update(0.01, 1.4) == "idle"      # still dragging, no repeat
+    assert fsm.update(0.10, 1.5) == "release"   # opens — drag ends
 
 
-def test_release_on_unpinch():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    fsm.update(0.01)  # press (held)
-    assert fsm.update(0.10) == "release"   # transition: held → open
+def test_no_click_after_drag_release():
+    fsm = _fsm()
+    fsm.update(0.01, 1.0)
+    fsm.update(0.01, 1.25)   # press
+    assert fsm.update(0.10, 1.4) == "release"
+    assert fsm.update(0.10, 1.5) == "idle"
 
 
-def test_press_again_after_release():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    fsm.update(0.01)  # press (held)
-    fsm.update(0.10)  # release
-    assert fsm.update(0.01) == "press"  # new press
+def test_pinch_again_after_click():
+    fsm = _fsm()
+    fsm.update(0.01, 1.0)
+    fsm.update(0.10, 1.1)    # click
+    fsm.update(0.01, 1.2)    # pending again
+    assert fsm.update(0.01, 1.45) == "press"   # held — drag
 
 
-def test_hysteresis_prevents_bounce():
-    fsm = PinchFSM(pinch_thresh=0.02, release_thresh=0.04)
-    fsm.update(0.01)   # held
-    # Distance between thresh and release_thresh — should stay held
-    assert fsm.update(0.03) == "idle"      # 0.02 < 0.03 < 0.04, still held
-    assert fsm.update(0.05) == "release"   # above release_thresh — now open
-    assert fsm.update(0.01) == "press"     # new pinch
+def test_hysteresis_prevents_bounce_while_dragging():
+    fsm = _fsm()
+    fsm.update(0.01, 1.0)
+    fsm.update(0.01, 1.25)                      # press (dragging)
+    assert fsm.update(0.03, 1.3) == "idle"      # 0.02 < 0.03 < 0.04 — still held
+    assert fsm.update(0.05, 1.4) == "release"   # above release_thresh
+    fsm.update(0.01, 1.5)
+    assert fsm.update(0.10, 1.6) == "click"     # quick pinch again — click
 
 
-# --- GestureHCIModule: pinch-hold drives mouse_down / drag / mouse_up ---
+def test_hysteresis_applies_while_pending():
+    fsm = _fsm()
+    fsm.update(0.01, 1.0)                       # pending
+    assert fsm.update(0.03, 1.1) == "idle"      # between thresholds — still pending
+    assert fsm.update(0.03, 1.25) == "press"    # held past delay — drag
+
+
+# --- GestureHCIModule: click vs pinch-hold drag ---
 
 class FakeController:
     def __init__(self, **kwargs):
@@ -81,33 +98,49 @@ async def _make_module(bus, monkeypatch):
     mod = GestureHCIModule("gesture_hci", {
         "pinch_thresh_m": 0.02,
         "release_thresh_m": 0.04,
+        "drag_hold_s": 0.2,
     })
     await mod.setup(bus)
     return controller
 
 
 @pytest.mark.asyncio
-async def test_pinch_hold_drag_release_dispatches_down_move_up(monkeypatch):
+async def test_quick_pinch_dispatches_single_click(monkeypatch):
     bus = EventBus()
     controller = await _make_module(bus, monkeypatch)
 
-    await bus.publish(_pose(0.10, 1.0))   # open hand — just moves
-    await bus.publish(_pose(0.01, 1.1))   # pinch closes — button down
-    await bus.publish(_pose(0.01, 1.2))   # held — keeps moving (drag)
-    await bus.publish(_pose(0.10, 1.3))   # pinch opens — button up
+    await bus.publish(_pose(0.10, 1.0))
+    await bus.publish(_pose(0.01, 1.05))  # closes
+    await bus.publish(_pose(0.10, 1.15))  # opens 0.1s later — click
+
+    kinds = [c[0] for c in controller.calls]
+    assert kinds.count("click") == 1
+    assert "mouse_down" not in kinds
+    assert "mouse_up" not in kinds
+
+
+@pytest.mark.asyncio
+async def test_held_pinch_dispatches_down_move_up(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch)
+
+    await bus.publish(_pose(0.10, 1.0))
+    await bus.publish(_pose(0.01, 1.1))   # closes — pending
+    await bus.publish(_pose(0.01, 1.35))  # held past 0.2s — button down
+    await bus.publish(_pose(0.01, 1.5))   # still held — drag movement
+    await bus.publish(_pose(0.10, 1.6))   # opens — button up
 
     kinds = [c[0] for c in controller.calls]
     assert "mouse_down" in kinds
     assert "mouse_up" in kinds
     assert kinds.index("mouse_down") < kinds.index("mouse_up")
     assert "click" not in kinds
-    # cursor still tracked while held (drag)
     down_i, up_i = kinds.index("mouse_down"), kinds.index("mouse_up")
     assert "move" in kinds[down_i:up_i]
 
 
 @pytest.mark.asyncio
-async def test_press_and_release_intents_published(monkeypatch):
+async def test_intents_published_for_click_and_drag(monkeypatch):
     bus = EventBus()
     received = []
 
@@ -117,9 +150,10 @@ async def test_press_and_release_intents_published(monkeypatch):
     bus.subscribe(IntentEvent, on_intent)
     await _make_module(bus, monkeypatch)
 
-    await bus.publish(_pose(0.10, 1.0))
-    await bus.publish(_pose(0.01, 1.1))
-    await bus.publish(_pose(0.01, 1.2))
-    await bus.publish(_pose(0.10, 1.3))
+    await bus.publish(_pose(0.01, 1.0))   # pending
+    await bus.publish(_pose(0.10, 1.1))   # click
+    await bus.publish(_pose(0.01, 1.2))   # pending
+    await bus.publish(_pose(0.01, 1.45))  # press
+    await bus.publish(_pose(0.10, 1.6))   # release
 
-    assert received == ["idle", "press", "idle", "release"]
+    assert received == ["idle", "click", "idle", "press", "release"]

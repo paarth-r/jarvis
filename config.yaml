@@ -54,6 +54,7 @@ modules:
     screen_gain: 2.5
     pinch_thresh_m: 0.025
     release_thresh_m: 0.045
+    drag_hold_s: 0.2      # pinch held longer than this starts a drag; shorter = click
   pointing:
     class: jarvis.modules.pointing.PointingModule
     enabled: true

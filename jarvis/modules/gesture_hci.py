@@ -17,30 +17,44 @@ THUMB_TIP = 4
 
 class _PinchState(Enum):
     OPEN = "open"
-    HELD = "held"
+    PENDING = "pending"    # pinched, waiting to see if it's a click or a drag
+    DRAGGING = "dragging"
 
 
 class PinchFSM:
-    """Pure FSM — no hardware dependency. Returns 'press' on OPEN→HELD and
-    'release' on HELD→OPEN, enabling click-and-drag."""
+    """Pure FSM — no hardware dependency. A pinch released within hold_delay
+    is a 'click'; one held longer emits 'press' (drag start) and 'release'
+    (drag end) when it opens."""
 
     def __init__(
         self,
-        pinch_thresh: float = 0.025,   # meters; enter held
-        release_thresh: float = 0.045,  # meters; exit held (hysteresis)
+        pinch_thresh: float = 0.025,   # meters; enter pinch
+        release_thresh: float = 0.045,  # meters; exit pinch (hysteresis)
+        hold_delay: float = 0.2,        # seconds pinched before drag starts
     ) -> None:
         self._thresh = pinch_thresh
         self._release = release_thresh
+        self._hold_delay = hold_delay
         self._state = _PinchState.OPEN
+        self._pinch_start_ts: float = 0.0
 
-    def update(self, distance: float) -> str:
+    def update(self, distance: float, now: float) -> str:
         if self._state == _PinchState.OPEN:
             if distance < self._thresh:
-                self._state = _PinchState.HELD
+                self._state = _PinchState.PENDING
+                self._pinch_start_ts = now
+            return "idle"
+
+        if self._state == _PinchState.PENDING:
+            if distance > self._release:
+                self._state = _PinchState.OPEN
+                return "click"
+            if now - self._pinch_start_ts >= self._hold_delay:
+                self._state = _PinchState.DRAGGING
                 return "press"
             return "idle"
 
-        if self._state == _PinchState.HELD:
+        if self._state == _PinchState.DRAGGING:
             if distance > self._release:
                 self._state = _PinchState.OPEN
                 return "release"
@@ -55,6 +69,7 @@ class GestureHCIModule(Module):
         self._fsm = PinchFSM(
             pinch_thresh=self.config.get("pinch_thresh_m", 0.025),
             release_thresh=self.config.get("release_thresh_m", 0.045),
+            hold_delay=self.config.get("drag_hold_s", 0.2),
         )
         # Import MouseController lazily so Quartz import failure doesn't break tests
         from mouse_control.control import MouseController
@@ -77,11 +92,14 @@ class GestureHCIModule(Module):
         self._controller.move(norm_x, norm_y)
 
         dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
-        intent = self._fsm.update(dist)
+        intent = self._fsm.update(dist, event.timestamp)
 
-        # Pinch = button held: close presses, movement while held drags
-        # (MouseController.move emits drag events while down), open releases.
-        if intent == "press":
+        # Quick pinch = click; pinch held past drag_hold_s = button down,
+        # movement while held drags (MouseController.move emits drag events
+        # while down), open releases.
+        if intent == "click":
+            self._controller.click(norm_x, norm_y)
+        elif intent == "press":
             self._controller.mouse_down(norm_x, norm_y)
         elif intent == "release":
             self._controller.mouse_up(norm_x, norm_y)

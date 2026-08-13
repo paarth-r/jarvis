@@ -2,9 +2,9 @@
 
 Vision-based human–computer interaction runtime. A stereo camera pair watches your
 hands; Jarvis tracks them with MediaPipe, triangulates the landmarks into 3D world
-coordinates, and turns gestures into actions — cursor movement, pinch to click and
-drag (pinch holds the button; release lets go), and pointing — with a live 2D + 3D
-visualizer.
+coordinates, and turns gestures into actions — cursor movement, pinch to click or
+drag (a quick pinch clicks; holding it past `drag_hold_s` drags until released), and
+pointing — with a live 2D + 3D visualizer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
