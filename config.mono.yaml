@@ -1,0 +1,60 @@
+# Jarvis mono (single-camera) mouse-control configuration.
+# Uses one camera — by default the Mac's built-in webcam (device 0).
+# StereoFusion mono-projects each hand at a fixed assumed depth (mono_depth_m),
+# so cursor XY tracking works but metric depth is approximate; pinch thresholds
+# below are the same as stereo and may need loosening if clicks feel unreliable.
+
+hand_pose:
+  detection_confidence: 0.5
+  tracking_confidence: 0.6
+
+cameras:
+  main:
+    device: 0             # built-in FaceTime camera; bump if an external cam grabs index 0
+    width: 1280
+    height: 720
+    fps: 30
+    intrinsics:           # PLACEHOLDER pinhole for FaceTime HD @ 1280x720 (~60 deg HFOV)
+      fx: 1000.0
+      fy: 1000.0
+      cx: 640.0
+      cy: 360.0
+    distortion: []        # none — uncalibrated
+    extrinsics:           # camera at world origin
+      R: [[1,0,0],[0,1,0],[0,0,1]]
+      t: [0, 0, 0]
+
+modules:
+  stereo_fusion:
+    class: jarvis.modules.stereo_fusion.StereoFusionModule
+    sync_tolerance_ms: 16.0
+    mono_fallback: true
+    mono_depth_m: 0.5     # assumed hand distance from camera, metres
+  gesture_hci:
+    class: jarvis.modules.gesture_hci.GestureHCIModule
+    smoothing: 0.3
+    move_threshold_px: 2.0
+    screen_gain: 2.5
+    pinch_thresh_m: 0.025
+    release_thresh_m: 0.045
+    drag_hold_s: 0.2
+  pointing:
+    class: jarvis.modules.pointing.PointingModule
+    enabled: false        # mouse control only
+  action_dispatcher:
+    class: jarvis.modules.action_dispatcher.ActionDispatcher
+    cooldown_s: 1.0
+    on_point_action: ""
+  visualizer:
+    class: jarvis.modules.visualizer.VisualizerModule
+    enabled: false        # set true to watch detection windows
+    show_2d: true
+    show_3d: false
+
+subprocesses:
+  arm:
+    enabled: false
+    module: jarvis.processes.arm_controller
+  llm:
+    enabled: false
+    module: jarvis.processes.llm_agent

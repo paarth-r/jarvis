@@ -62,6 +62,13 @@ The default config enables cursor control, so it will move your mouse. To watch
 detection without that, enable the visualizer and disable the HCI modules, or use
 a replay config.
 
+### No rig? Mono mouse control
+
+`./run_mono.sh` launches mouse control from a single camera (the built-in webcam
+by default) using `config.mono.yaml` — StereoFusion mono-projects each hand at a
+fixed assumed depth (`mono_depth_m`), so cursor tracking works without the stereo
+pair; metric depth (and thus pinch feel) is approximate.
+
 ### No hardware? Replay from a clip
 
 Any camera can read from a recorded video or an image folder instead of a live
