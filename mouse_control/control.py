@@ -17,6 +17,8 @@ try:
         kCGEventMouseMoved,
         kCGMouseButtonLeft,
         CGEventCreateScrollWheelEvent,
+        CGEventCreate,
+        CGEventGetLocation,
         CGDisplayBounds,
         CGMainDisplayID,
     )
@@ -106,6 +108,8 @@ class MouseController:
         self._smooth_norm_y: Optional[float] = None
         self._last_emit_x: Optional[float] = None
         self._last_emit_y: Optional[float] = None
+        self._rel_pos: Optional[Tuple[float, float]] = None  # last relative-mode post
+        self._rel_post_ts: float = 0.0
 
     def _get_bounds(self) -> Tuple[float, float, float, float]:
         """Largest display: (origin_x, origin_y, width, height)."""
@@ -195,6 +199,60 @@ class MouseController:
         CGEventPost(kCGHIDEventTap, event)
         event = CGEventCreateMouseEvent(None, kCGEventLeftMouseUp, (x, y), kCGMouseButtonLeft)
         CGEventPost(kCGHIDEventTap, event)
+
+    # --- Relative (trackpad-style) control: act at the current cursor position ---
+
+    def _cursor_position(self) -> Tuple[float, float]:
+        """Where relative moves start from. Posted events land asynchronously,
+        so reading the system cursor right after a post can return a stale
+        spot; trust our own last post unless the system cursor has been
+        moved elsewhere (a real mouse/trackpad) since it settled."""
+        sx, sy = CGEventGetLocation(CGEventCreate(None))
+        if self._rel_pos is None:
+            return (sx, sy)
+        settled = time.perf_counter() - self._rel_post_ts > 0.1
+        rx, ry = self._rel_pos
+        if settled and (abs(sx - rx) > 2 or abs(sy - ry) > 2):
+            return (sx, sy)
+        return self._rel_pos
+
+    def _post_rel(self, event_type, x: float, y: float) -> None:
+        event = CGEventCreateMouseEvent(None, event_type, (x, y), kCGMouseButtonLeft)
+        CGEventPost(kCGHIDEventTap, event)
+        self._rel_pos = (x, y)
+        self._rel_post_ts = time.perf_counter()
+
+    def _post_here(self, event_type) -> None:
+        self._post_rel(event_type, *self._cursor_position())
+
+    def move_by(self, dx: float, dy: float) -> None:
+        """Move the cursor by (dx, dy) pixels from where it is. Never throttled
+        or smoothed — the caller already filtered, and dropping a delta would
+        lose motion for good."""
+        if not _QUARTZ_AVAILABLE or (dx == 0 and dy == 0):
+            return
+        x, y = self._cursor_position()
+        x, y = self._clip_to_screen(x + dx, y + dy)
+        event_type = kCGEventLeftMouseDragged if self._mouse_down else kCGEventMouseMoved
+        self._post_rel(event_type, x, y)
+
+    def click_here(self) -> None:
+        if not _QUARTZ_AVAILABLE:
+            return
+        self._post_here(kCGEventLeftMouseDown)
+        self._post_here(kCGEventLeftMouseUp)
+
+    def mouse_down_here(self) -> None:
+        if not _QUARTZ_AVAILABLE:
+            return
+        self._mouse_down = True
+        self._post_here(kCGEventLeftMouseDown)
+
+    def mouse_up_here(self) -> None:
+        if not _QUARTZ_AVAILABLE:
+            return
+        self._mouse_down = False
+        self._post_here(kCGEventLeftMouseUp)
 
     def scroll(self, delta_y: float) -> None:
         """Scroll vertically. delta_y: positive = scroll down, negative = scroll up."""
