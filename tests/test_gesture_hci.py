@@ -83,6 +83,18 @@ class FakeController:
     def click(self, x, y):
         self.calls.append(("click", x, y))
 
+    def move_by(self, dx, dy):
+        self.calls.append(("move_by", dx, dy))
+
+    def click_here(self):
+        self.calls.append(("click_here",))
+
+    def mouse_down_here(self):
+        self.calls.append(("mouse_down_here",))
+
+    def mouse_up_here(self):
+        self.calls.append(("mouse_up_here",))
+
 
 def _pose(pinch_dist: float, ts: float) -> WorldPoseEvent:
     lm = np.zeros((21, 3), dtype=np.float32)
@@ -91,7 +103,7 @@ def _pose(pinch_dist: float, ts: float) -> WorldPoseEvent:
     return WorldPoseEvent(landmarks_3d=lm, timestamp=ts, confidence=1.0, hand_side="right")
 
 
-async def _make_module(bus, monkeypatch):
+async def _make_module(bus, monkeypatch, **extra):
     controller = FakeController()
     import mouse_control.control
     monkeypatch.setattr(mouse_control.control, "MouseController", lambda **kw: controller)
@@ -99,6 +111,7 @@ async def _make_module(bus, monkeypatch):
         "pinch_thresh_m": 0.02,
         "release_thresh_m": 0.04,
         "drag_hold_s": 0.2,
+        **extra,
     })
     await mod.setup(bus)
     return controller
@@ -157,3 +170,99 @@ async def test_intents_published_for_click_and_drag(monkeypatch):
     await bus.publish(_pose(0.10, 1.6))   # release
 
     assert received == ["idle", "click", "idle", "press", "release"]
+
+
+# --- trackpad mode: relative motion, fist clutch, pinch freeze ---
+
+from jarvis.modules.pointing import (
+    INDEX_MCP, MIDDLE_MCP, RING_MCP, PINKY_MCP, MIDDLE_TIP, RING_TIP, PINKY_TIP,
+)
+from jarvis.modules.gesture_hci import THUMB_MCP
+
+_TIPS_MCPS = [(INDEX_TIP, INDEX_MCP), (MIDDLE_TIP, MIDDLE_MCP),
+              (RING_TIP, RING_MCP), (PINKY_TIP, PINKY_MCP)]
+
+
+def _tp_pose(x: float, ts: float, pinch: float = 0.10, fist: bool = False) -> WorldPoseEvent:
+    """Wrist at (x, 0); knuckles 8 cm up; tips 16 cm up (open) or 4 cm (fist).
+    Thumb tip sits `pinch` metres from the index tip."""
+    lm = np.zeros((21, 3), dtype=np.float32)
+    lm[:, 2] = 0.5
+    lm[:, 0] = x
+    tip_y = -0.04 if fist else -0.16
+    for tip, mcp in _TIPS_MCPS:
+        lm[mcp, 1] = -0.08
+        lm[tip, 1] = tip_y
+    lm[THUMB_MCP, 1] = -0.08
+    lm[THUMB_TIP] = lm[INDEX_TIP] + np.array([pinch, 0, 0], dtype=np.float32)
+    return WorldPoseEvent(landmarks_3d=lm, timestamp=ts, confidence=1.0, hand_side="right")
+
+
+_TP_CFG = {"mode": "trackpad",
+           "trackpad": {"min_cutoff": 1e6, "beta": 0.0}}   # filter off for geometry
+
+
+def _moved(controller):
+    return sum(c[1] for c in controller.calls if c[0] == "move_by")
+
+
+@pytest.mark.asyncio
+async def test_trackpad_moves_relatively(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_TP_CFG)
+    for i in range(10):
+        await bus.publish(_tp_pose(0.3 + 0.002 * i, i / 30.0))   # hand far right
+    assert _moved(controller) < 0                                # mirrored X
+    assert "move" not in [c[0] for c in controller.calls]       # no absolute moves
+
+
+@pytest.mark.asyncio
+async def test_fist_clutch_repositions_without_moving_cursor(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_TP_CFG)
+    await bus.publish(_tp_pose(0.0, 0.0))
+    for i in range(1, 10):                                       # fist, slide 9 cm
+        await bus.publish(_tp_pose(0.01 * i, i / 30.0, fist=True))
+    await bus.publish(_tp_pose(0.09, 10 / 30.0))                 # open again
+    await bus.publish(_tp_pose(0.09, 11 / 30.0))
+    assert _moved(controller) == 0
+    kinds = [c[0] for c in controller.calls]
+    assert "click_here" not in kinds and "mouse_down_here" not in kinds
+
+
+@pytest.mark.asyncio
+async def test_cursor_frozen_while_pinch_pending_then_clicks_here(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_TP_CFG)
+    await bus.publish(_tp_pose(0.0, 0.0))
+    await bus.publish(_tp_pose(0.005, 0.05, pinch=0.01))   # closes while knuckles shift
+    await bus.publish(_tp_pose(0.010, 0.10, pinch=0.01))
+    await bus.publish(_tp_pose(0.010, 0.15))               # opens < 0.2s — click
+    kinds = [c[0] for c in controller.calls]
+    assert kinds == ["click_here"]                          # no motion before it
+
+
+@pytest.mark.asyncio
+async def test_trackpad_drag_moves_with_button_down(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_TP_CFG)
+    await bus.publish(_tp_pose(0.0, 0.0))
+    await bus.publish(_tp_pose(0.0, 0.05, pinch=0.01))     # pending
+    await bus.publish(_tp_pose(0.0, 0.30, pinch=0.01))     # press
+    for i in range(1, 6):
+        await bus.publish(_tp_pose(0.004 * i, 0.30 + i / 30.0, pinch=0.01))
+    await bus.publish(_tp_pose(0.02, 0.6))                 # open — release
+    kinds = [c[0] for c in controller.calls]
+    down, up = kinds.index("mouse_down_here"), kinds.index("mouse_up_here")
+    assert "move_by" in kinds[down:up]
+
+
+@pytest.mark.asyncio
+async def test_fist_during_drag_releases_button(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_TP_CFG)
+    await bus.publish(_tp_pose(0.0, 0.0, pinch=0.01))
+    await bus.publish(_tp_pose(0.0, 0.25, pinch=0.01))     # press
+    await bus.publish(_tp_pose(0.0, 0.30, fist=True))
+    kinds = [c[0] for c in controller.calls]
+    assert kinds == ["mouse_down_here", "mouse_up_here"]

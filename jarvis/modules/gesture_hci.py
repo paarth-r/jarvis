@@ -7,6 +7,8 @@ import numpy as np
 
 from ..events import WorldPoseEvent, IntentEvent
 from ..runtime.module_base import Module
+from .pointing import is_fist
+from .trackpad import TrackpadMapper
 
 # MediaPipe hand landmark indices
 INDEX_MCP = 5
@@ -37,6 +39,18 @@ class PinchFSM:
         self._hold_delay = hold_delay
         self._state = _PinchState.OPEN
         self._pinch_start_ts: float = 0.0
+
+    @property
+    def is_pending(self) -> bool:
+        """Pinched, not yet a drag — the cursor should hold still."""
+        return self._state == _PinchState.PENDING
+
+    def cancel(self) -> str:
+        """Abandon the current pinch without clicking. Returns 'release' if a
+        drag was in progress (so the button gets let go), else 'idle'."""
+        was_dragging = self._state == _PinchState.DRAGGING
+        self._state = _PinchState.OPEN
+        return "release" if was_dragging else "idle"
 
     def update(self, distance: float, now: float) -> str:
         if self._state == _PinchState.OPEN:
@@ -78,9 +92,60 @@ class GestureHCIModule(Module):
             move_threshold_px=self.config.get("move_threshold_px", 2.0),
         )
         self._gain: float = self.config.get("screen_gain", 2.5)
+        # "absolute": hand position = screen position (screen_gain).
+        # "trackpad": hand motion moves the cursor, with acceleration; a fist
+        # is the clutch (lift your finger off the pad).
+        self._mode: str = self.config.get("mode", "absolute")
+        tp = self.config.get("trackpad", {}) or {}
+        self._trackpad = TrackpadMapper(**tp)
+        self._clutched = False
         self.bus.subscribe(WorldPoseEvent, self._on_pose)
 
     async def _on_pose(self, event: WorldPoseEvent) -> None:
+        if self._mode == "trackpad":
+            await self._on_pose_trackpad(event)
+        else:
+            await self._on_pose_absolute(event)
+
+    async def _on_pose_trackpad(self, event: WorldPoseEvent) -> None:
+        lm = event.landmarks_3d
+        dx = dy = 0
+        dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
+
+        self._clutched = is_fist(lm)
+        if self._clutched:
+            # Hand 'lifted': forget position so there's no jump on re-entry,
+            # and drop any pinch (a closing fist can brush thumb to index).
+            self._trackpad.reset()
+            intent = self._fsm.cancel()
+        else:
+            mid = (lm[INDEX_MCP, :2] + lm[THUMB_MCP, :2]) / 2.0
+            dx, dy = self._trackpad.update(mid, event.timestamp)
+            intent = self._fsm.update(dist, event.timestamp)
+            if self._fsm.is_pending:
+                # Pinching shifts the knuckles; freeze so the click lands
+                # where the cursor was when the fingers closed.
+                dx = dy = 0
+
+        # Button events before the move: a click/release fires at the spot
+        # the cursor was, not after the opening fingers nudge it.
+        if intent == "click":
+            self._controller.click_here()
+        elif intent == "press":
+            self._controller.mouse_down_here()
+        elif intent == "release":
+            self._controller.mouse_up_here()
+        if dx or dy:
+            self._controller.move_by(dx, dy)
+
+        await self.bus.publish(IntentEvent(
+            type=intent,
+            confidence=event.confidence,
+            payload={"dx": dx, "dy": dy, "clutched": self._clutched, "dist_m": dist},
+            timestamp=event.timestamp,
+        ))
+
+    async def _on_pose_absolute(self, event: WorldPoseEvent) -> None:
         lm = event.landmarks_3d
 
         # Cursor follows midpoint of index and thumb knuckles (MCPs), mirrored on X
