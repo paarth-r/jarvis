@@ -146,13 +146,13 @@ def main() -> None:
                 "Follow each dot with your EYES until it moves on.\n\nSPACE to start, ESC to quit")))
             key = cv2.waitKey(30) & 0xFF
             if key == 27:
-                return
+                sys.exit("calibration cancelled")
             if key == 32:
                 break
 
         collected = _collect(cap, tracker, size)
         if collected is None:
-            return
+            sys.exit("calibration cancelled")
         feats, targets = collected
         if len(feats) < 8:
             sys.exit(f"only {len(feats)} usable dots - need 8+ (is your face in frame?)")

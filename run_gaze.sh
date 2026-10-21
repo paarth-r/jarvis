@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Launch Jarvis eye-tracking cursor control from the built-in webcam.
-# Usage: ./run_gaze.sh                (calibrates first if there's no calibration yet)
-#        ./run_gaze.sh --recalibrate  (always calibrate first)
+# Calibrates every launch (posture/lighting drift between sessions), then runs.
+# Usage: ./run_gaze.sh
 #        ./run_gaze.sh --jump         (cursor jumps to your gaze only when you pinch)
 set -euo pipefail
 
@@ -9,11 +9,9 @@ cd "$(dirname "$0")"
 
 CONFIG="config.gaze.yaml"
 CALIB="$HOME/.jarvis/gaze_calibration.json"
-RECALIBRATE=0
 JUMP=0
 for arg in "$@"; do
   case "$arg" in
-    --recalibrate) RECALIBRATE=1 ;;
     --jump) JUMP=1 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -24,9 +22,8 @@ if [[ -z "${PYTHON:-}" ]] && command -v jarvis >/dev/null 2>&1; then
   PYTHON="$(head -1 "$(command -v jarvis)" | sed 's/^#!//')"
 fi
 PY="${PYTHON:-python3}"
-if [[ $RECALIBRATE == 1 || ! -f "$CALIB" ]]; then
-  "$PY" -m jarvis.gaze_calibrate --out "$CALIB"
-fi
+# Cancelling calibration (ESC) exits non-zero, which stops the launch here.
+"$PY" -m jarvis.gaze_calibrate --out "$CALIB"
 
 if [[ $JUMP == 1 ]]; then
   TMP="$(mktemp -t jarvis-gaze).yaml"

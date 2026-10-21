@@ -99,22 +99,22 @@ it only clicks:
 | thumb + middle pinch | right click |
 
 Gaze comes from MediaPipe Face Landmarker: the iris's position inside each eye
-plus head pose, mapped to the screen by a per-user calibration. On first run
-the script calibrates: look at 13 dots, then it prints the **held-out error**
-(leave-one-dot-out, in screen points) and shows a live dot + halo following
-your gaze (ESC to finish). That error is roughly the halo radius, so a click
+plus head pose, mapped to the screen by a per-user calibration. Every launch
+starts with calibration, since posture and lighting drift between sessions:
+look at 13 dots, then it prints the **held-out error** (leave-one-dot-out, in
+screen points) and shows a live dot + halo following your gaze (ESC to start
+cursor control). That error is roughly the halo radius, so a click
 lands at the halo's centre. Snapping to the nearest control inside the halo
 comes later (`mouse_control/click_halo.py` is the starting point).
 
 ```bash
-./run_gaze.sh                 # calibrate if needed, then run (cursor follows gaze)
-./run_gaze.sh --recalibrate   # redo calibration (moved your laptop / your seat?)
+./run_gaze.sh                 # calibrate, then run (cursor follows gaze); ESC in calibration aborts
 ./run_gaze.sh --jump          # cursor stays put; a pinch jumps it to your gaze and clicks
 jarvis-gaze-calibrate         # calibration alone -> ~/.jarvis/gaze_calibration.json
 ```
 
-Recalibrate whenever you sit differently. The fit uses head pose, but a webcam
-can't fully separate head motion from eye motion.
+If you sit differently mid-session, restart to recalibrate. The fit uses head
+pose, but a webcam can't fully separate head motion from eye motion.
 
 ### No hardware? Replay from a clip
 
