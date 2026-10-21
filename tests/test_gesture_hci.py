@@ -266,3 +266,36 @@ async def test_fist_during_drag_releases_button(monkeypatch):
     await bus.publish(_tp_pose(0.0, 0.30, fist=True))
     kinds = [c[0] for c in controller.calls]
     assert kinds == ["mouse_down_here", "mouse_up_here"]
+
+
+# --- box mode: absolute from a small hand box, pinch freeze ---
+
+_BOX_CFG = {"mode": "box", "box": {"min_cutoff": 1e6, "beta": 0.0}}
+
+
+def _last_move(controller):
+    return [c for c in controller.calls if c[0] == "move"][-1]
+
+
+@pytest.mark.asyncio
+async def test_box_small_travel_spans_screen(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_BOX_CFG)
+    await bus.publish(_tp_pose(0.30, 0.0))                  # first sight -> centre
+    assert _last_move(controller)[1:] == pytest.approx((0.5, 0.5))
+    await bus.publish(_tp_pose(0.30 - 0.075, 0.03))         # 7.5 cm -> right edge
+    assert _last_move(controller)[1] == pytest.approx(1.0, abs=1e-3)
+
+
+@pytest.mark.asyncio
+async def test_box_click_lands_where_pinch_closed(monkeypatch):
+    bus = EventBus()
+    controller = await _make_module(bus, monkeypatch, **_BOX_CFG)
+    await bus.publish(_tp_pose(0.0, 0.0))
+    await bus.publish(_tp_pose(0.006, 0.05, pinch=0.01))    # closes, knuckles shift
+    await bus.publish(_tp_pose(0.006, 0.10))                # opens — click
+    click = [c for c in controller.calls if c[0] == "click"]
+    assert len(click) == 1
+    assert click[0][1:] == pytest.approx((0.5, 0.5), abs=1e-3)
+    await bus.publish(_tp_pose(0.006, 0.13))                # no jump afterwards
+    assert _last_move(controller)[1:] == pytest.approx((0.5, 0.5), abs=1e-3)

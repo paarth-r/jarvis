@@ -57,3 +57,12 @@ def test_filter_holds_still_hand_steady():
     xs = [m.update(rng.normal(0.0, 0.001, 2), i / 30.0)[0] for i in range(120)]
     raw_px = 0.001 / 0.15 * 2560          # 1 mm jitter ~ 17 px on a 2560 screen
     assert np.std(xs[30:]) * 2560 < 0.5 * raw_px
+
+
+def test_anchor_keeps_cursor_while_hand_shifts():
+    m = _mapper()
+    m.update(np.array([0.0, 0.0]), 0.0)
+    m.update(np.array([0.005, 0.0]), 0.03)        # knuckles shift during a pinch
+    m.anchor((0.5, 0.5))                          # hold the cursor where it was
+    x, _ = m.update(np.array([0.005, 0.0]), 0.06)
+    assert x == pytest.approx(0.5, abs=1e-4)

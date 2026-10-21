@@ -33,12 +33,20 @@ class BoxMapper:
         self._max_gap = max_gap_s
         self._filter = OneEuroFilter(min_cutoff=min_cutoff, beta=beta)
         self._center: Optional[np.ndarray] = None
+        self._p: Optional[np.ndarray] = None   # last filtered hand position
         self._last_t: float = 0.0
         self._out = np.array([0.5, 0.5])   # last cursor position, normalised
 
     def _offset(self, norm: np.ndarray) -> np.ndarray:
         """Hand offset from box centre (metres) that maps to `norm`."""
         return np.array([0.5 - norm[0], norm[1] - 0.5]) * self._size
+
+    def anchor(self, norm_xy: Tuple[float, float]) -> None:
+        """Re-place the box so the current hand position maps to norm_xy —
+        lets the cursor stay put while the hand shifts (e.g. during a pinch)."""
+        self._out = np.asarray(norm_xy, dtype=np.float64)
+        if self._p is not None:
+            self._center = self._p - self._offset(self._out)
 
     def update(self, pos_xy: np.ndarray, t: float) -> Tuple[float, float]:
         if self._center is not None and t - self._last_t > self._max_gap:
@@ -47,6 +55,7 @@ class BoxMapper:
         self._last_t = t
 
         p = self._filter(np.asarray(pos_xy, dtype=np.float64)[:2], t)
+        self._p = p
         if self._center is None:
             self._center = p - self._offset(self._out)
 

@@ -9,6 +9,7 @@ from ..events import WorldPoseEvent, IntentEvent
 from ..runtime.module_base import Module
 from .pointing import is_fist
 from .trackpad import TrackpadMapper
+from .box_mapper import BoxMapper
 
 # MediaPipe hand landmark indices
 INDEX_MCP = 5
@@ -85,17 +86,29 @@ class GestureHCIModule(Module):
             release_thresh=self.config.get("release_thresh_m", 0.045),
             hold_delay=self.config.get("drag_hold_s", 0.2),
         )
-        # Import MouseController lazily so Quartz import failure doesn't break tests
-        from mouse_control.control import MouseController
-        self._controller = MouseController(
-            smoothing=self.config.get("smoothing", 0.3),
-            move_threshold_px=self.config.get("move_threshold_px", 2.0),
-        )
-        self._gain: float = self.config.get("screen_gain", 2.5)
         # "absolute": hand position = screen position (screen_gain).
+        # "box": hand position = screen position from a small self-placing
+        #        box of travel, 1-euro filtered (see BoxMapper).
         # "trackpad": hand motion moves the cursor, with acceleration; a fist
         # is the clutch (lift your finger off the pad).
         self._mode: str = self.config.get("mode", "absolute")
+        # Import MouseController lazily so Quartz import failure doesn't break tests
+        from mouse_control.control import MouseController
+        if self._mode == "box":
+            # BoxMapper owns gain and smoothing; the controller passes through
+            self._controller = MouseController(
+                move_gain=1.0, smoothing=1.0,
+                move_threshold_px=self.config.get("move_threshold_px", 1.0),
+            )
+        else:
+            self._controller = MouseController(
+                smoothing=self.config.get("smoothing", 0.3),
+                move_threshold_px=self.config.get("move_threshold_px", 2.0),
+            )
+        self._gain: float = self.config.get("screen_gain", 2.5)
+        self._box = BoxMapper(**(self.config.get("box", {}) or {}))
+        self._frozen: Optional[tuple] = None
+        self._prev_norm: Optional[tuple] = None
         tp = self.config.get("trackpad", {}) or {}
         self._trackpad = TrackpadMapper(**tp)
         self._clutched = False
@@ -104,8 +117,48 @@ class GestureHCIModule(Module):
     async def _on_pose(self, event: WorldPoseEvent) -> None:
         if self._mode == "trackpad":
             await self._on_pose_trackpad(event)
+        elif self._mode == "box":
+            await self._on_pose_box(event)
         else:
             await self._on_pose_absolute(event)
+
+    async def _on_pose_box(self, event: WorldPoseEvent) -> None:
+        lm = event.landmarks_3d
+        mid = (lm[INDEX_MCP, :2] + lm[THUMB_MCP, :2]) / 2.0
+        norm_x, norm_y = self._box.update(mid, event.timestamp)
+
+        dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
+        intent = self._fsm.update(dist, event.timestamp)
+
+        # Pinching shifts the knuckles; hold the cursor where it was the frame
+        # before the fingers closed (the closing frame already carries some
+        # shift), then re-anchor the box there so it doesn't jump when the
+        # pinch resolves into a click or a drag.
+        if self._fsm.is_pending:
+            if self._frozen is None:
+                self._frozen = self._prev_norm or (norm_x, norm_y)
+            norm_x, norm_y = self._frozen
+        elif self._frozen is not None:
+            norm_x, norm_y = self._frozen
+            self._box.anchor(self._frozen)
+            self._frozen = None
+        self._prev_norm = (norm_x, norm_y)
+
+        if intent == "click":
+            self._controller.click(norm_x, norm_y)
+        elif intent == "press":
+            self._controller.mouse_down(norm_x, norm_y)
+        elif intent == "release":
+            self._controller.mouse_up(norm_x, norm_y)
+        else:
+            self._controller.move(norm_x, norm_y)
+
+        await self.bus.publish(IntentEvent(
+            type=intent,
+            confidence=event.confidence,
+            payload={"norm_x": norm_x, "norm_y": norm_y, "dist_m": dist},
+            timestamp=event.timestamp,
+        ))
 
     async def _on_pose_trackpad(self, event: WorldPoseEvent) -> None:
         lm = event.landmarks_3d
