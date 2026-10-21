@@ -2,9 +2,10 @@ import numpy as np
 import pytest
 from jarvis.runtime.event_bus import EventBus
 from jarvis.modules.pointing import (
-    is_pointing, compute_ray, PointingModule,
+    is_pointing, is_fist, compute_ray, PointingModule,
     WRIST, INDEX_MCP, INDEX_PIP, INDEX_TIP,
-    MIDDLE_PIP, MIDDLE_TIP, RING_PIP, RING_TIP, PINKY_PIP, PINKY_TIP,
+    MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP, RING_MCP, RING_PIP, RING_TIP,
+    PINKY_MCP, PINKY_PIP, PINKY_TIP,
 )
 from jarvis.events import WorldPoseEvent, PointEvent
 
@@ -82,3 +83,38 @@ async def test_module_silent_when_not_pointing():
     await bus.publish(WorldPoseEvent(landmarks_3d=_open_hand(), timestamp=1.0,
                                      confidence=1.0, hand_side="right"))
     assert received == []
+
+
+# --- is_fist (trackpad clutch) ---
+
+_FINGERS = [(INDEX_MCP, INDEX_PIP, INDEX_TIP), (MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP),
+            (RING_MCP, RING_PIP, RING_TIP), (PINKY_MCP, PINKY_PIP, PINKY_TIP)]
+
+
+def _hand(tip_z: dict) -> np.ndarray:
+    """Knuckles at z=0.08, PIPs at 0.10; tips at the given z (default extended)."""
+    lm = np.zeros((21, 3), dtype=np.float32)
+    for mcp, pip, tip in _FINGERS:
+        lm[mcp] = [0, 0, 0.08]
+        lm[pip] = [0, 0, 0.10]
+        lm[tip] = [0, 0, tip_z.get(tip, 0.16)]
+    return lm
+
+
+def test_is_fist_true_when_all_tips_fold_into_palm():
+    assert is_fist(_hand({INDEX_TIP: 0.05, MIDDLE_TIP: 0.05,
+                          RING_TIP: 0.05, PINKY_TIP: 0.05})) is True
+
+
+def test_is_fist_false_for_open_hand():
+    assert is_fist(_hand({})) is False
+
+
+def test_pinch_with_curled_fingers_is_not_a_fist():
+    # index bent toward the thumb but its tip still past the knuckle
+    assert is_fist(_hand({INDEX_TIP: 0.11, MIDDLE_TIP: 0.05,
+                          RING_TIP: 0.05, PINKY_TIP: 0.05})) is False
+
+
+def test_pointing_hand_is_not_a_fist():
+    assert is_fist(_pointing_hand()) is False

@@ -12,10 +12,13 @@ WRIST = 0
 INDEX_MCP = 5
 INDEX_PIP = 6
 INDEX_TIP = 8
+MIDDLE_MCP = 9
 MIDDLE_PIP = 10
 MIDDLE_TIP = 12
+RING_MCP = 13
 RING_PIP = 14
 RING_TIP = 16
+PINKY_MCP = 17
 PINKY_PIP = 18
 PINKY_TIP = 20
 
@@ -46,6 +49,20 @@ def is_pointing(landmarks_3d: np.ndarray) -> bool:
         and not _extended(landmarks_3d, PINKY_TIP, PINKY_PIP)
     )
     return index_out and others_curled
+
+
+def is_fist(landmarks_3d: np.ndarray) -> bool:
+    """True when all four fingertips are folded back into the palm (each tip
+    no farther from the wrist than its own knuckle). Stricter than 'not
+    extended' on purpose: a pinch bends the index but leaves its tip well
+    beyond the knuckle, so pinching never reads as a fist."""
+    wrist = landmarks_3d[WRIST]
+    for tip, mcp in [(INDEX_TIP, INDEX_MCP), (MIDDLE_TIP, MIDDLE_MCP),
+                     (RING_TIP, RING_MCP), (PINKY_TIP, PINKY_MCP)]:
+        if (np.linalg.norm(landmarks_3d[tip] - wrist)
+                > np.linalg.norm(landmarks_3d[mcp] - wrist)):
+            return False
+    return True
 
 
 class PointingModule(Module):
