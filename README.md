@@ -69,6 +69,21 @@ by default) using `config.mono.yaml` — StereoFusion mono-projects each hand at
 fixed assumed depth (`mono_depth_m`), so cursor tracking works without the stereo
 pair; metric depth (and thus pinch feel) is approximate.
 
+The mono config runs the cursor in **trackpad mode** (`gesture_hci.mode: trackpad`):
+
+- **Motion, not position, moves the cursor.** Rest your hand anywhere in view;
+  small wrist/finger movements do the work.
+- **Pointer acceleration.** Slow movement is fine-grained (`gain_min`, ~1.5 px/mm);
+  a quick flick crosses the screen (`gain_max`, ~40 px/mm), ramping between
+  `speed_lo` and `speed_hi`. Input is smoothed with a 1-euro filter
+  (`min_cutoff` for jitter at rest, `beta` for lag in fast moves).
+- **Fist = clutch.** Close your fist to "lift off the pad", reposition, open to
+  continue — the cursor stays put. A fist mid-drag releases the button.
+- **Pinch** clicks / pinch-and-hold drags as before; the cursor freezes while a
+  pinch is closing so clicks land where you aimed.
+
+Set `mode: absolute` to go back to hand-position mapping (`screen_gain`).
+
 ### No hardware? Replay from a clip
 
 Any camera can read from a recorded video or an image folder instead of a live
@@ -97,7 +112,7 @@ cameras:
 | `CameraModule` / `FileCameraModule` | device/file → `FrameEvent` |
 | `HandPoseModule` | `FrameEvent` → `PoseEvent` (per-camera 2D landmarks) |
 | `StereoFusionModule` | `PoseEvent` → `WorldPoseEvent` (3D triangulation, undistortion, mono fallback) |
-| `GestureHCIModule` | `WorldPoseEvent` → cursor move + pinch press/drag/release, `IntentEvent` |
+| `GestureHCIModule` | `WorldPoseEvent` → cursor move (`absolute` or `trackpad` mode) + pinch press/drag/release, `IntentEvent` |
 | `PointingModule` | `WorldPoseEvent` → `PointEvent` (index-finger ray) |
 | `ActionDispatcher` | `ActionEvent` / `PointEvent` → OS action (with cooldown) |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |
