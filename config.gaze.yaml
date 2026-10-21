@@ -1,0 +1,56 @@
+# Jarvis eye-tracking cursor (single built-in camera).
+# Eyes move the cursor; thumb-index pinch = left click (hold to drag),
+# thumb-middle pinch = right click. Calibrate first: jarvis-gaze-calibrate
+
+hand_pose:
+  detection_confidence: 0.5
+  tracking_confidence: 0.6
+
+cameras:
+  main:
+    device: 0             # built-in FaceTime camera; watches your face AND your hand
+    width: 1280
+    height: 720
+    fps: 30
+    intrinsics:           # PLACEHOLDER pinhole (only used to mono-project the hand)
+      fx: 1000.0
+      fy: 1000.0
+      cx: 640.0
+      cy: 360.0
+    distortion: []
+    extrinsics:
+      R: [[1,0,0],[0,1,0],[0,0,1]]
+      t: [0, 0, 0]
+
+modules:
+  stereo_fusion:
+    class: jarvis.modules.stereo_fusion.StereoFusionModule
+    sync_tolerance_ms: 16.0
+    mono_fallback: true
+    mono_depth_m: 0.5     # assumed hand distance; pinch thresholds below are in these "metres"
+  gaze:
+    class: jarvis.modules.gaze.GazeModule
+    camera_id: main
+    calibration_path: ~/.jarvis/gaze_calibration.json
+    min_cutoff: 0.4       # 1-euro Hz at rest - lower = steadier cursor while fixating
+    beta: 2.0             # 1-euro - higher = less lag on a saccade (units: 1/screen-width)
+  gaze_hci:
+    class: jarvis.modules.gaze_hci.GazeHCIModule
+    jump_on_pinch: false  # true = cursor stays put; a pinch jumps it to your gaze and clicks
+    move_threshold_px: 3.0
+    pinch_thresh_m: 0.025
+    release_thresh_m: 0.045
+    drag_hold_s: 0.3      # index pinch held longer than this drags (cursor follows gaze)
+  visualizer:
+    class: jarvis.modules.visualizer.VisualizerModule
+    enabled: false
+    show_2d: true
+    show_3d: false
+
+subprocesses:
+  arm:
+    enabled: false
+    module: jarvis.processes.arm_controller
+  llm:
+    enabled: false
+    module: jarvis.processes.llm_agent

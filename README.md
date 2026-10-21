@@ -85,6 +85,37 @@ The mono config runs the cursor in **box mode** (`gesture_hci.mode: box`):
 Other modes: `absolute` (legacy hand-position mapping via `screen_gain`) and
 `trackpad` (relative motion with pointer acceleration; fist = clutch).
 
+### Eye-tracking cursor
+
+`./run_gaze.sh` makes your **eyes** the cursor. The built-in webcam watches both
+your face and your hand (`config.gaze.yaml`). The hand never moves the cursor;
+it only clicks:
+
+| Gesture | Action |
+|---|---|
+| look | cursor follows your gaze (1-euro smoothed) |
+| thumb + index pinch, quick | left click |
+| thumb + index pinch, held > `drag_hold_s` | drag (cursor follows your gaze while held) |
+| thumb + middle pinch | right click |
+
+Gaze comes from MediaPipe Face Landmarker: the iris's position inside each eye
+plus head pose, mapped to the screen by a per-user calibration. On first run
+the script calibrates: look at 13 dots, then it prints the **held-out error**
+(leave-one-dot-out, in screen points) and shows a live dot + halo following
+your gaze (ESC to finish). That error is roughly the halo radius, so a click
+lands at the halo's centre. Snapping to the nearest control inside the halo
+comes later (`mouse_control/click_halo.py` is the starting point).
+
+```bash
+./run_gaze.sh                 # calibrate if needed, then run (cursor follows gaze)
+./run_gaze.sh --recalibrate   # redo calibration (moved your laptop / your seat?)
+./run_gaze.sh --jump          # cursor stays put; a pinch jumps it to your gaze and clicks
+jarvis-gaze-calibrate         # calibration alone -> ~/.jarvis/gaze_calibration.json
+```
+
+Recalibrate whenever you sit differently. The fit uses head pose, but a webcam
+can't fully separate head motion from eye motion.
+
 ### No hardware? Replay from a clip
 
 Any camera can read from a recorded video or an image folder instead of a live
@@ -103,7 +134,7 @@ cameras:
 |---|---|
 | `cameras` | Per-camera `device`/`source`/`path`, `width/height/fps`, `intrinsics` (fx,fy,cx,cy), `distortion` (k1,k2,p1,p2,k3), `extrinsics` (camera-to-world R,t) |
 | `hand_pose` | MediaPipe `detection_confidence` (default 0.5) / `tracking_confidence`, applied to every camera |
-| `modules` | Declared modules + their settings (stereo fusion, gesture HCI, pointing, action dispatcher, visualizer) |
+| `modules` | Declared modules + their settings (stereo fusion, gesture HCI, gaze + gaze HCI, pointing, action dispatcher, visualizer) |
 | `subprocesses` | Optional arm / LLM subprocess bridges |
 
 ## Modules
@@ -114,6 +145,8 @@ cameras:
 | `HandPoseModule` | `FrameEvent` → `PoseEvent` (per-camera 2D landmarks) |
 | `StereoFusionModule` | `PoseEvent` → `WorldPoseEvent` (3D triangulation, undistortion, mono fallback) |
 | `GestureHCIModule` | `WorldPoseEvent` → cursor move (`absolute`, `box` or `trackpad` mode) + pinch press/drag/release, `IntentEvent` |
+| `GazeModule` | `FrameEvent` → `GazeEvent` (face + iris landmarks → calibrated, smoothed screen point) |
+| `GazeHCIModule` | `GazeEvent` + `WorldPoseEvent` → gaze cursor (`follow` or `jump_on_pinch`), index pinch = left click/drag, middle pinch = right click |
 | `PointingModule` | `WorldPoseEvent` → `PointEvent` (index-finger ray) |
 | `ActionDispatcher` | `ActionEvent` / `PointEvent` → OS action (with cooldown) |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |

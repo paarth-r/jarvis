@@ -58,3 +58,11 @@ class SystemEvent:
     type: str        # "module_started" | "module_stopped" | "module_error"
     module_id: str
     payload: dict
+
+
+@dataclass
+class GazeEvent:
+    norm_x: float            # 0-1 across the calibrated display, smoothed
+    norm_y: float            # 0-1 down the calibrated display, smoothed
+    timestamp: float
+    confidence: float        # 1.0 = face found this frame

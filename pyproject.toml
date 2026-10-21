@@ -34,6 +34,7 @@ dev = ["pytest", "pytest-asyncio"]
 
 [project.scripts]
 jarvis = "jarvis.main:main"
+jarvis-gaze-calibrate = "jarvis.gaze_calibrate:main"
 
 [project.urls]
 Homepage = "https://github.com/paarth-r/jarvis"
