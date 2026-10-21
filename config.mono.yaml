@@ -32,16 +32,23 @@ modules:
     mono_depth_m: 0.5     # assumed hand distance from camera, metres
   gesture_hci:
     class: jarvis.modules.gesture_hci.GestureHCIModule
-    mode: trackpad        # trackpad = hand motion moves the cursor; absolute = hand position is the cursor
-    trackpad:             # relative mode tuning (lengths are metres at mono_depth_m)
-      gain_min: 1500.0    # px per metre of hand at slow speed — lower = finer precision
-      gain_max: 40000.0   # px per metre at fast speed — higher = less travel to cross the screen
-      speed_lo: 0.03      # m/s; at/below -> gain_min
-      speed_hi: 0.35      # m/s; at/above -> gain_max
-      deadzone_mps: 0.005 # slower than this = still (stops creep)
-      min_cutoff: 1.0     # 1-euro Hz at rest — lower = less jitter
+    mode: box             # box = hand position is the cursor, from a small hand box (recommended)
+                          # absolute = legacy hand-position mapping (screen_gain)
+                          # trackpad = hand motion moves the cursor, with acceleration; fist = clutch
+    box:                  # box-mode tuning (lengths are metres at mono_depth_m)
+      box_width_m: 0.15   # hand travel for the full screen width — smaller = less movement
+      box_height_m: 0.10  # hand travel for the full screen height
+      min_cutoff: 0.8     # 1-euro Hz at rest — lower = steadier when holding still
       beta: 10.0          # 1-euro — higher = less lag in fast moves
-    # absolute-mode settings (ignored in trackpad mode)
+    trackpad:             # trackpad-mode tuning (ignored in box mode)
+      gain_min: 1500.0
+      gain_max: 40000.0
+      speed_lo: 0.03
+      speed_hi: 0.35
+      deadzone_mps: 0.005
+      min_cutoff: 1.0
+      beta: 10.0
+    # absolute-mode settings (ignored in box/trackpad modes; move_threshold_px also applies to box)
     smoothing: 0.3
     move_threshold_px: 2.0
     screen_gain: 2.5
