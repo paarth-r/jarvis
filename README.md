@@ -71,7 +71,7 @@ pair; metric depth (and thus pinch feel) is approximate.
 
 The mono config runs the cursor in **box mode** (`gesture_hci.mode: box`):
 
-- **Hand position is cursor position, from a small box.** About 15 x 10 cm of
+- **Hand position is cursor position, from a small box.** About 24 x 15 cm of
   hand travel (`box_width_m`, `box_height_m`) spans the whole screen, linearly,
   with no acceleration.
 - **The box comes to you.** When your hand enters view the box is placed so the
