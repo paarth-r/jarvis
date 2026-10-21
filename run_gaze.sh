@@ -19,6 +19,10 @@ for arg in "$@"; do
   esac
 done
 
+# Use the interpreter the `jarvis` command was installed into (has mediapipe + Quartz).
+if [[ -z "${PYTHON:-}" ]] && command -v jarvis >/dev/null 2>&1; then
+  PYTHON="$(head -1 "$(command -v jarvis)" | sed 's/^#!//')"
+fi
 PY="${PYTHON:-python3}"
 if [[ $RECALIBRATE == 1 || ! -f "$CALIB" ]]; then
   "$PY" -m jarvis.gaze_calibrate --out "$CALIB"
