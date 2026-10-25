@@ -71,3 +71,20 @@ async def test_tool_success_and_unreachable(base_url):
 def test_build_room_server():
     cfg = build_room_server("http://127.0.0.1:8790")
     assert cfg["type"] == "sdk" and cfg["name"] == "room"
+
+
+async def test_missing_args_are_error_results(base_url):
+    tools = _tools(base_url)
+    for name, args in [("get_state", {}), ("set_state", {}), ("set_state", {"device": "fan"}),
+                       ("set_state", {"patch": {"on": True}})]:
+        result = await tools[name].handler(args)
+        assert result["is_error"] is True, (name, args)
+
+
+async def test_empty_and_slashed_ids_do_not_change_path(base_url):
+    client = RoomClient(base_url)
+    with pytest.raises(RoomError, match="device id is required"):
+        await client.get_state("")
+    with pytest.raises(RoomError) as exc:
+        await client.get_state("../devices")
+    assert exc.value.status == 404

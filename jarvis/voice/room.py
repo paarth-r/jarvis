@@ -7,6 +7,7 @@ failing room never raises into the SDK.
 from __future__ import annotations
 
 import json
+from urllib.parse import quote
 from typing import Any
 
 import httpx
@@ -44,11 +45,17 @@ class RoomClient:
     async def list_devices(self) -> list[dict]:
         return await self._request("GET", "/devices")
 
+    @staticmethod
+    def _device_path(device_id: str) -> str:
+        if not isinstance(device_id, str) or not device_id.strip():
+            raise RoomError("device id is required")
+        return f"/devices/{quote(device_id.strip(), safe='')}"
+
     async def get_state(self, device_id: str) -> dict:
-        return await self._request("GET", f"/devices/{device_id}")
+        return await self._request("GET", self._device_path(device_id))
 
     async def set_state(self, device_id: str, patch: dict) -> dict:
-        return await self._request("POST", f"/devices/{device_id}", patch)
+        return await self._request("POST", self._device_path(device_id), patch)
 
 
 def _ok(data: Any) -> dict[str, Any]:
@@ -59,21 +66,26 @@ def _err(exc: RoomError) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": f"Error: {exc}"}], "is_error": True}
 
 
+async def _guarded(call) -> dict[str, Any]:
+    """Run a room call; any failure becomes an is_error result, never an exception."""
+    try:
+        return _ok(await call())
+    except RoomError as exc:
+        return _err(exc)
+    except Exception as exc:  # nothing may raise into the SDK
+        return _err(RoomError(f"{type(exc).__name__}: {exc}"))
+
+
 def make_room_tools(client: RoomClient) -> list[SdkMcpTool]:
     @tool("list_devices", "List every controllable device in the room with its current state.", {})
     async def list_devices(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return _ok(await client.list_devices())
-        except RoomError as exc:
-            return _err(exc)
+        return await _guarded(client.list_devices)
 
     @tool("get_state", "Get the current state of one room device by id (e.g. fan, window).",
           {"device": str})
     async def get_state(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return _ok(await client.get_state(args["device"]))
-        except RoomError as exc:
-            return _err(exc)
+        device = (args or {}).get("device")
+        return await _guarded(lambda: client.get_state(device))
 
     @tool(
         "set_state",
@@ -82,10 +94,11 @@ def make_room_tools(client: RoomClient) -> list[SdkMcpTool]:
         {"device": str, "patch": dict},
     )
     async def set_state(args: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return _ok(await client.set_state(args["device"], args["patch"]))
-        except RoomError as exc:
-            return _err(exc)
+        device = (args or {}).get("device")
+        patch = (args or {}).get("patch")
+        if not isinstance(patch, dict) or not patch:
+            return _err(RoomError("patch must be a non-empty object"))
+        return await _guarded(lambda: client.set_state(device, patch))
 
     return [list_devices, get_state, set_state]
 

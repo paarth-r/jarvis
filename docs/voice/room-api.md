@@ -20,11 +20,22 @@ Example: `POST /devices/fan` with `{"on": true, "speed": 2}`.
 
 ## Errors
 
-Errors are JSON `{"error": "<message>"}`; the message is read aloud to Claude,
-so keep it short and specific.
+Errors are JSON `{"error": "<message>"}`; the message is returned to Claude as
+tool-result text, so keep it short and specific.
 
 - 404 `{"error": "unknown device"}` for an id that does not exist.
 - 400 `{"error": "..."}` for a bad patch (unknown field, wrong type, out of range).
+
+## Validation rules
+
+- Requests with a body send `Content-Type: application/json`; every response
+  (success and error) is `application/json`.
+- A successful POST returns the full updated device object, not just the patch.
+- An empty or non-object patch (`{}`, `[]`, `null`, a string) is 400.
+- A body that is not valid JSON is 400.
+- Unknown fields are rejected with 400.
+- Any bad field rejects the whole patch with 400; nothing is partially applied.
+- `POST /devices` with no id (and any other unrecognised path) is 404.
 
 ## Devices (stub)
 
