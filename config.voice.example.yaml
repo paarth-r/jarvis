@@ -1,0 +1,22 @@
+# Voice agent config. Copy to config.voice.local.yaml (gitignored) to override.
+# Relative paths resolve against the current working directory; "~" is expanded.
+vault: ~/path/to/your/vault
+model: claude-opus-5-5
+wake_threshold: 0.5
+wake_models_dir: models/wakeword
+stt_model: mlx-community/whisper-large-v3-turbo
+vocab_file: vocab.local.txt
+self_chat_id: null
+tts_voice: af_heart
+kokoro_model: models/kokoro/kokoro-v1.0.onnx
+kokoro_voices: models/kokoro/voices-v1.0.bin
+smart_turn_model: models/smart-turn/smart-turn-v3.onnx
+room_api_url: http://127.0.0.1:8790
+followup_s: 8.0
+hard_silence_s: 3.0
+working_tone_after_s: 3.0
+turn_timeout_s: 180.0
+idle_reset_s: 600.0
+data_dir: ~/.jarvis/voice
+input_device: null
+output_device: null

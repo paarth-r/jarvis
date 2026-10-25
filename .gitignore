@@ -5,3 +5,10 @@ build/
 dist/
 .venv/
 .pytest_cache/
+.venv-voice/
+config.voice.local.yaml
+models/wakeword/*.onnx
+models/**/*.onnx
+models/**/*.bin
+vocab.local.txt
+.superpowers/
