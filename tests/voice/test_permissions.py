@@ -82,6 +82,12 @@ def test_round2_rules(vault):
     cases = [
         (cal + "create_event", {"attendeeEmails": ["a@b.c"]}, "confirm"),
         (cal + "update_event", {"addedAttendees": [{"email": "a@b.c"}]}, "confirm"),
+        (cal + "update_event", {"summary": "tennis"}, "confirm"),
+        ("mcp__notion__notion-calendar-update-events", {}, "confirm"),
+        ("mcp__claude_ai_Gmail__create_draft_and_post", {}, "confirm"),
+        (cal + "create_event_and_invite", {}, "confirm"),
+        ("mcp__claude_ai_Gmail__create_draft", {"to": ["a@x"]}, "allow"),
+        ("mcp__notion__notion-search", {}, "allow"),
         (cal + "update_event", {"addedAttendeeEmails": "a@b.c"}, "confirm"),
         (cal + "create_event", {"summary": "tennis"}, "allow"),
         (cal + "list_events", {}, "allow"),
@@ -99,6 +105,13 @@ def test_round2_rules(vault):
         ("mcp__notion__notion-list-shared-pages", {}, "confirm"),
         ("mcp__room__anything", {}, "allow"),
     ]
+    for probe in (
+        "update_file_status", "forget_x", "target_update", "widget_create",
+        "overwrite_budget", "unlist_page", "wipe_list", "checkout_and_push",
+        "export_and_publish", "readd_member", "finder_execute",
+        "queryset_drop", "set_status", "mark_read",
+    ):
+        assert classify_tool("mcp__srv__" + probe, {}, vault) == "confirm", probe
     for name, inp, want in cases:
         assert classify_tool(name, inp, vault) == want, (name, inp)
     for sub in (".GIT/config", ".Claude/x", "CLAUDE.md", "claude.local.md", ".MCP.json"):
@@ -114,7 +127,18 @@ def test_round2_readbacks():
     assert "a@x.com" in g and "c@x.com" in g and "and blind copy to b@x.com" in g
     assert "reply all" in g.lower()
     d = describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1", "subject": "Plans"})
-    assert d == "Send your saved draft with subject Plans?"
+    assert d == "Send your saved draft?"
+    assert describe_action(
+        "mcp__claude_ai_Gmail__send_message", {"draftId": "d", "to": ["a@x"]}
+    ) == "Send your saved draft?"
+    assert describe_action("mcp__claude_ai_Gmail__reply", {"replyAll": True}) == "Reply all to the email thread?"
+    assert describe_action("mcp__claude_ai_Gmail__reply", {}) == "Reply to the email thread?"
+    assert describe_action("mcp__claude_ai_Gmail__forward", {"to": ["a@x"]}) == "Forward the email to a@x?"
+    c = describe_action(
+        "mcp__claude_ai_Google_Calendar__create_event",
+        {"summary": "T", "attendeeEmails": "a@b.c", "guestPermissions": {"x": 1}},
+    )
+    assert "with 1 attendees" in c
     assert describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1"}) == "Send your saved draft?"
     b = describe_action("Bash", {"command": "echo a\nrm -rf x"})
     assert "echo a then rm" in b

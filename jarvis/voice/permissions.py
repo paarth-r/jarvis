@@ -20,10 +20,15 @@ CONFIRM_MCP_SUBSTRINGS = (
     "send", "reply", "forward", "share", "delete", "trash",
     "respond_to_event", "cancel", "spawn", "comment",
 )
-CALENDAR_WRITES = ("create_event", "update_event")
-READ_ONLY_VERBS = (
-    "list", "get", "search", "read", "query", "fetch", "find", "status",
-    "check", "download", "export",
+READ_VERBS = {
+    "list", "get", "search", "read", "query", "fetch", "find", "check",
+    "download", "export", "status",
+}
+MUTATING_WORDS = (
+    "send", "reply", "forward", "share", "delete", "trash", "cancel", "spawn",
+    "comment", "update", "create", "write", "set", "mark", "move", "remove",
+    "drop", "push", "publish", "execute", "run", "post", "add", "edit",
+    "upload", "invite", "respond",
 )
 AFFIRMATIVES = {
     "yes", "yeah", "yep", "yes please", "do it", "send it", "go ahead",
@@ -95,12 +100,21 @@ def classify_tool(
         ):
             return "allow"
         return "confirm"
-    tool = _tool_part(norm)
-    if norm.startswith("mcp__room__") or "create_draft" in tool:
+    tokens = _tool_part(norm).split("_")
+    if norm.startswith("mcp__room__"):
         return "allow"
-    if any(s in tool for s in CALENDAR_WRITES):
+    server_last = norm.split("__")[1].split("_")[-1] if "__" in norm else ""
+    body = list(tokens)
+    while body and body[0] in {server_last, "calendar"} and len(body) > 1:
+        body.pop(0)
+    whole = "_".join(body)
+    if whole == "create_draft":
+        return "allow"
+    if whole in {"create_event", "create_events"}:
         return "confirm" if _has_attendees(tool_input) else "allow"
-    if any(v in tool for v in READ_ONLY_VERBS):
+    if body and body[0] in READ_VERBS and not any(
+        t.startswith(w) for t in tokens if t != server_last for w in MUTATING_WORDS
+    ):
         return "allow"
     return "confirm"
 
@@ -155,7 +169,10 @@ def _count_attendees(value: object) -> int:
     if isinstance(value, dict):
         for key, item in value.items():
             if _is_attendee_key(key) and item:
-                n += len(item) if isinstance(item, (list, tuple, dict)) else 1
+                if isinstance(item, (list, tuple)):
+                    n += len(item)
+                elif not isinstance(item, dict):
+                    n += 1
             else:
                 n += _count_attendees(item)
     elif isinstance(value, (list, tuple)):
@@ -180,19 +197,21 @@ def _find_key(value: object, keys: tuple[str, ...]) -> object:
     return None
 
 
-def _describe_gmail(tool_input: dict) -> str:
-    to = tool_input.get("to")
-    subject = tool_input.get("subject")
-    if tool_input.get("draftId") and not (to or tool_input.get("cc") or tool_input.get("bcc")):
-        tail = f" with subject {_clip(subject)}" if subject else ""
-        return f"Send your saved draft{tail}?"
+def _describe_gmail(name: str, tool_input: dict) -> str:
+    if tool_input.get("draftId"):
+        return "Send your saved draft?"
+    norm = name.lower()
+    if norm.endswith("reply"):
+        return "Reply all to the email thread?" if tool_input.get("replyAll") else "Reply to the email thread?"
+    if norm.endswith("forward"):
+        return f"Forward the email to {_people(tool_input.get('to'))}?"
     verb = "Reply all" if tool_input.get("replyAll") else "Send an email"
-    text = f"{verb} to {_people(to)}"
+    text = f"{verb} to {_people(tool_input.get('to'))}"
     if tool_input.get("cc"):
         text += f", copying {_people(tool_input['cc'])}"
     if tool_input.get("bcc"):
         text += f", and blind copy to {_people(tool_input['bcc'])}"
-    return f"{text} with subject {_clip(subject or 'no subject')}?"
+    return f"{text} with subject {_clip(tool_input.get('subject') or 'no subject')}?"
 
 
 def _describe_share(tool_input: dict) -> str:
@@ -215,13 +234,13 @@ def describe_action(name: str, tool_input: dict) -> str:
     norm = name.lower().replace("-", "_")
     if norm.startswith("mcp__"):
         if "gmail" in norm and ("send" in norm or "forward" in norm or "reply" in norm):
-            return _describe_gmail(tool_input)
+            return _describe_gmail(name, tool_input)
         if "imessage" in norm and norm.endswith("reply"):
             target = tool_input.get("chat_id") or tool_input.get("recipient") or "unknown chat"
             return f"Send a text message to {_clip(target)}: {_clip(tool_input.get('text', ''))}?"
         if "share" in norm:
             return _describe_share(tool_input)
-        if any(s in norm for s in CALENDAR_WRITES) or "respond_to_event" in norm:
+        if "create_event" in norm or "update_event" in norm or "respond_to_event" in norm:
             title = _find_key(tool_input, ("summary", "title")) or "an event"
             count = _count_attendees(tool_input)
             tail = f" with {count} attendees" if count else ""
