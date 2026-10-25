@@ -128,6 +128,72 @@ cameras:
 
 `source` may be `device` (default, live), `video` (a file), or `images` (a folder).
 
+## Voice agent
+
+`jarvis-voice` is an always-on voice front-end for headless Claude Code. It listens
+for a wake word ("hey Jarvis"), records until you finish speaking (Silero VAD plus
+the smart-turn model, with a 3 s hard stop), transcribes locally with Whisper, sends
+the text to a warm Claude Code session running in your vault, and speaks the reply
+sentence by sentence with Kokoro TTS. After a reply it keeps listening for 8 s so
+you can follow up without the wake word; "new conversation" starts a fresh session.
+A small room MCP server (`list_devices`, `get_state`, `set_state`) lets Claude drive
+devices through an HTTP room API. It is separate from the vision runtime and has its
+own environment (`.venv-voice`, Python 3.12, Apple silicon for STT today).
+
+### Install
+
+```bash
+uv venv --python 3.12 .venv-voice
+uv pip install -p .venv-voice -e ".[voice]"
+scripts/fetch_voice_models.sh
+cp config.voice.example.yaml config.voice.local.yaml
+```
+
+Set `vault` (and optionally `vocab_file`, a one-term-per-line list of names Whisper
+should spell right) in `config.voice.local.yaml`. Claude Code must be installed and
+logged in. `scripts/install_voice.sh` does all of the above and installs a login
+service (LaunchAgent on macOS, systemd user unit on Linux).
+
+### Run
+
+```bash
+.venv-voice/bin/jarvis-room-stub
+.venv-voice/bin/jarvis-voice --local config.voice.local.yaml
+```
+
+Run the two commands in separate terminals; the stub is an in-memory room API for
+testing. `jarvis-voice --list-devices` lists audio devices (set `input_device` /
+`output_device` in the config), `--no-room` skips the room tools, and `--check`
+loads every model and builds the session config, then prints `ok` and exits. State
+transitions are logged to stderr as `[voice] IDLE -> LISTEN`.
+
+### Drop-in wake words
+
+Every `*.onnx` openWakeWord model in `models/wakeword/` is loaded next to the
+built-in `hey_jarvis`, and fires the same way. For example,
+`scripts/fetch_voice_models.sh --hey-claude` adds a community "hey claude" model.
+
+### Confirmation rules
+
+- Reading (files, search, list/get/read MCP tools) and room control run without asking.
+- Writes inside the vault run without asking; writes outside it, shell commands, and
+  any MCP tool that sends, replies, shares, deletes, creates or updates something are
+  read back aloud and need a spoken yes.
+- Only a clean affirmative ("yes", "yeah", "do it", "send it", "go ahead", ...)
+  proceeds. Silence, "no", or anything unclear cancels, and it says so. No retries.
+- Shell commands too long to read back are refused outright.
+
+### Privacy
+
+Personal settings live only in `config.voice.local.yaml` and the vocab file, both
+gitignored, as are the model files. Audio is processed on the machine; recorded
+utterances (WAV plus a transcript index) are kept under `~/.jarvis/voice`, and the
+turn log is written to `wiki/voice-log/` inside your own vault. Nothing personal is
+committed. Requests themselves go to Claude through Claude Code.
+
+See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
+[docs/voice/room-api.md](docs/voice/room-api.md) for the room API contract.
+
 ## Configuration (`config.yaml`)
 
 | Section | Purpose |

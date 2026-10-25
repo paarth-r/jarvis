@@ -10,7 +10,7 @@ self_chat_id: null
 tts_voice: af_heart
 kokoro_model: models/kokoro/kokoro-v1.0.onnx
 kokoro_voices: models/kokoro/voices-v1.0.bin
-smart_turn_model: models/smart-turn/smart-turn-v3.onnx
+smart_turn_model: models/smart_turn/smart-turn-v3.2-cpu.onnx
 room_api_url: http://127.0.0.1:8790
 followup_s: 8.0
 hard_silence_s: 3.0
