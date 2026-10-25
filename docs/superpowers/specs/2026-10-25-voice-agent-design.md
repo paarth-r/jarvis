@@ -1,7 +1,7 @@
 # Voice Agent ("hey Claude") — Design
 
 Date: 2026-10-25
-Status: draft, awaiting the user's approval (review questions answered 2026-10-25)
+Status: approved 2026-10-25 (after prior-art pass)
 
 ## Intent
 
@@ -83,8 +83,20 @@ while Claude works is acceptable; tuning response time is later work.
   ships with the prebuilt "hey jarvis" model as a placeholder and a custom
   "hey claude" model is trained (openWakeWord's synthetic-data pipeline) as a
   separate task. Swappable behind a `WakeWord` interface; any openWakeWord
-  model file in `models/wakeword/` is loaded automatically.
-- **End of speech: Silero VAD** decides when they're stopped talking.
+  model file in `models/wakeword/` is loaded automatically. A community
+  "hey claude" openWakeWord model exists (huggingface.co/gdiamos/hey-claude,
+  Apache-2.0) and is the first drop-in candidate. Known weaknesses: fires on
+  "hey Clyde"/"clawed", ~90% recall, untested against music/TV. It replaces
+  "hey Jarvis" only after an overnight false-wake test in their room with music
+  playing (measure in hours, fresh `Model` per clip; `reset()` does not clear
+  the buffer).
+- **End of speech: Silero VAD + smart-turn.** Silero VAD finds speech; the
+  open-source smart-turn model (Pipecat's) decides whether they're actually done,
+  so a mid-thought pause doesn't cut them off. A hard max (e.g. 3 s of silence)
+  still ends the turn.
+- **Whisper hallucination guard:** STT only runs on segments the VAD marked as
+  speech; transcripts with no real speech or known phantom phrases
+  ("thank you for watching", ...) are dropped.
 - **STT: Whisper large-v3-turbo, local** (mlx-whisper on the Mac; faster-whisper
   or whisper.cpp with CUDA on the Orin). Behind an `STT` interface so a cloud
   recognizer can be swapped in if local measures badly.
@@ -205,15 +217,47 @@ answer itself.
 - WER is measured on at least 50 of their real utterances; proper nouns
   specifically checked.
 
+## Prior art (2026-10-25 research)
+
+- adewaskar/jarvis: Agent SDK bridge + browser wake word/speech, subscription
+  login, read-only tool gate by default. Found claude.ai connectors do NOT
+  reach the SDK session.
+- Home Assistant forum build: Claude CLI as house brain, `--continue` for
+  context, sentence-streamed TTS, 10 s continuous-conversation window (needs a
+  state-transition trigger to avoid self-loops), spoken "one moment" ack.
+- Pipecat: local Mac pipeline (MLX Whisper, Kokoro, smart-turn) <800 ms. We
+  borrow its components, not the framework: Claude Code turns are 10-60 s of
+  tool use, not real-time chat. Revisit Pipecat if barge-in is ever built.
+
 ## Open risks (verify first, before building around them)
 
-1. **Do claude.ai connectors (Gmail, Calendar, Drive) and plugins load in a
-   headless Agent SDK session?** If not, those need to be configured as regular
-   MCP servers. First spike: one SDK call that lists its tools.
+1. **claude.ai connectors (Gmail, Calendar, Drive) are expected NOT to load**
+   in a headless Agent SDK session (prior art found this). Spike #1 confirms by
+   listing the session's tools. If confirmed, Gmail/Calendar get local MCP
+   servers configured on the box; wiki and memory are local and
+   unaffected.
 2. **Wake-word quality for "hey claude"** once trained; false accepts from
    music/YouTube in the room.
-3. **Mic quality across the room.** Laptop mic may be too weak; a USB
+3. **macOS mic permission for a background service.** The service must run as
+   a LaunchAgent in their logged-in session with mic access granted, or it gets
+   silent audio with no error.
+4. **Subscription auth:** personal local use of the Agent SDK on their Claude
+   Code login appears tolerated; re-check Anthropic's current terms before
+   relying on it.
+5. **Mic quality across the room.** Laptop mic may be too weak; a USB
    conference puck is the expected fix.
+
+## Privacy (public repo)
+
+The repo is public. Nothing personal is committed: vocab list, vault path,
+transcripts, audio, voice logs and `config.voice.local.yaml` are gitignored;
+the repo ships an example config only.
+
+## Future
+
+- dum-e: stereo vision mounted on the SO-101 arm with Claude in control of it,
+  a real movie-style Dum-E. The room API's generic device tools are the seam:
+  the arm becomes another device/tool set. Separate project.
 
 ## Left to the builder
 
