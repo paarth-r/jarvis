@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jarvis.voice</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__REPO__/.venv-voice/bin/jarvis-voice</string>
+        <string>--config</string>
+        <string>__REPO__/config.voice.example.yaml</string>
+        <string>--local</string>
+        <string>__REPO__/config.voice.local.yaml</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>__HOME__/.jarvis/voice/service.log</string>
+    <key>StandardErrorPath</key>
+    <string>__HOME__/.jarvis/voice/service.log</string>
+</dict>
+</plist>
