@@ -14,6 +14,7 @@ FRAME = 1280
 SMART_TURN_SECONDS = 8
 SMART_TURN_THRESHOLD = 0.5
 PREROLL_FRAMES = 3
+MAX_UTTERANCE_S = 30.0
 
 
 class SpeechDetector(Protocol):
@@ -82,18 +83,32 @@ class UtteranceRecorder:
         smart_turn: TurnModel,
         hard_silence_s: float = 3.0,
         pause_check_s: float = 0.4,
+        max_utterance_s: float = MAX_UTTERANCE_S,
     ) -> None:
         self._vad = vad
         self._turn = smart_turn
         self._hard_silence_s = hard_silence_s
         self._pause_check_s = pause_check_s
+        self._max_utterance_s = max_utterance_s
+
+    def reset(self) -> None:
+        """Clear the VAD's recurrent state so it does not leak across utterances."""
+        reset = getattr(self._vad, "reset", None)
+        if callable(reset):
+            reset()
 
     async def record(
         self, frames: AsyncIterator[np.ndarray], start_timeout_s: float
     ) -> np.ndarray | None:
-        """Return the utterance audio, or None if speech never starts in time."""
+        """Return the utterance audio, or None if speech never starts in time.
+
+        Recording stops at the end of the turn, after hard silence, or once the
+        utterance reaches ``max_utterance_s`` (continuous TV or music speech
+        would otherwise never end it); the audio so far is returned.
+        """
         frame_s = FRAME / SAMPLE_RATE
         timeout_frames = round(start_timeout_s / frame_s)
+        max_frames = round(self._max_utterance_s / frame_s)
         pause_frames = round(self._pause_check_s / frame_s)
         hard_frames = round(self._hard_silence_s / frame_s)
 
@@ -119,6 +134,8 @@ class UtteranceRecorder:
                 continue
 
             chunks.append(frame)
+            if len(chunks) >= max_frames:
+                break
             if speech:
                 silent = 0
                 checked = False

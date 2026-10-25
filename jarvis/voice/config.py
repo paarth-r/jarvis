@@ -29,6 +29,7 @@ class VoiceConfig:
     room_api_url: str = "http://127.0.0.1:8790"
     followup_s: float = 8.0
     hard_silence_s: float = 3.0
+    max_utterance_s: float = 30.0
     working_tone_after_s: float = 3.0
     turn_timeout_s: float = 180.0
     idle_reset_s: float = 600.0

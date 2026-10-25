@@ -77,6 +77,37 @@ async def test_short_silence_never_consults_model():
     assert audio is not None
 
 
+async def test_continuous_speech_is_capped():
+    # TV or music never pauses; the recording must still end.
+    turn = FakeTurn([0.0])
+    rec = UtteranceRecorder(FakeVAD(), turn, max_utterance_s=2.0)
+    audio = await rec.record(make_frames([(1, 60.0)]), start_timeout_s=2.0)
+    assert audio is not None
+    assert round(1.9 * 16000) <= len(audio) <= round(2.1 * 16000)
+
+
+async def test_max_utterance_defaults_to_thirty_seconds():
+    rec = UtteranceRecorder(FakeVAD(), FakeTurn([0.0]))
+    audio = await rec.record(make_frames([(1, 60.0)]), start_timeout_s=2.0)
+    assert audio is not None
+    assert round(29.9 * 16000) <= len(audio) <= round(30.1 * 16000)
+
+
+class ResettableVAD(FakeVAD):
+    def __init__(self) -> None:
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+def test_reset_resets_the_vad():
+    vad = ResettableVAD()
+    UtteranceRecorder(vad, FakeTurn([0.9])).reset()
+    assert vad.resets == 1
+    UtteranceRecorder(FakeVAD(), FakeTurn([0.9])).reset()  # no reset(): no-op
+
+
 @pytest.mark.skipif(not MODEL.exists(), reason="smart-turn model not downloaded")
 def test_smartturn_real_model_smoke():
     prob = SmartTurn(MODEL).predict(np.zeros(16000, dtype=np.int16))

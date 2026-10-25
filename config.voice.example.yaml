@@ -14,6 +14,7 @@ smart_turn_model: models/smart_turn/smart-turn-v3.2-cpu.onnx
 room_api_url: http://127.0.0.1:8790
 followup_s: 8.0
 hard_silence_s: 3.0
+max_utterance_s: 30.0
 working_tone_after_s: 3.0
 turn_timeout_s: 180.0
 idle_reset_s: 600.0
