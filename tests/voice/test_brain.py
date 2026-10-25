@@ -22,6 +22,7 @@ from jarvis.voice.brain import (
     NO_CONFIRM,
     TOO_LONG,
     VOICE_PROMPT,
+    voice_prompt,
     Brain,
     BrainTimeout,
 )
@@ -163,9 +164,14 @@ async def test_options(tmp_path, flag_dir):
     assert opts.model == "claude-x"
     assert opts.include_partial_messages is True
     assert opts.system_prompt == {
-        "type": "preset", "preset": "claude_code", "append": VOICE_PROMPT,
+        "type": "preset", "preset": "claude_code", "append": voice_prompt("sir"),
     }
+    assert 'Address the user as "sir"' in opts.system_prompt["append"]
     assert opts.mcp_servers == room
+
+
+def test_voice_prompt_without_address():
+    assert voice_prompt("") == VOICE_PROMPT
 
 
 async def test_timeout_raises_and_recycles(tmp_path, flag_dir):

@@ -8,7 +8,9 @@ wake_models_dir: models/wakeword
 stt_model: mlx-community/whisper-large-v3-turbo
 vocab_file: vocab.local.txt
 self_chat_id: null
-tts_voice: af_heart
+tts_voice: bm_daniel
+# How the assistant addresses you in replies; empty string for no form of address.
+address_as: sir
 kokoro_model: models/kokoro/kokoro-v1.0.onnx
 kokoro_voices: models/kokoro/voices-v1.0.bin
 smart_turn_model: models/smart_turn/smart-turn-v3.2-cpu.onnx

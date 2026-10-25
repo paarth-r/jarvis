@@ -174,6 +174,12 @@ Every `*.onnx` openWakeWord model in `models/wakeword/` is loaded next to the
 built-in `hey_jarvis`, and fires the same way. For example,
 `scripts/fetch_voice_models.sh --hey-claude` adds a community "hey claude" model.
 
+### Voice
+
+Replies use Kokoro's `bm_daniel`, a British male voice, and address you as "sir".
+Change `tts_voice` (any Kokoro voice id; `b*` voices get British pronunciation) or
+`address_as` (empty for none) in your local config.
+
 ### Confirmation rules
 
 - Reading (files, search, list/get/read MCP tools) and room control run without asking.

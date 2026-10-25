@@ -56,6 +56,18 @@ VOICE_PROMPT = (
     "(for example 'delete the old logs folder'). They hear 'I want to <summary>. "
     "Approve?' and the command runs only if they approve."
 )
+
+
+def voice_prompt(address_as: str) -> str:
+    """VOICE_PROMPT plus how to address the user (e.g. "sir"), if configured."""
+    if not address_as:
+        return VOICE_PROMPT
+    return (
+        f'{VOICE_PROMPT} Address the user as "{address_as}", the way a calm, dry, '
+        f'British butler would, for example "Good evening, {address_as}."'
+    )
+
+
 DECLINED = "Declined by voice."
 NO_CONFIRM = "No voice confirmation is available, so this action was not run."
 TOO_LONG = (
@@ -286,7 +298,7 @@ class Brain:
             cwd=self.cfg.vault,
             setting_sources=["user", "project", "local"],
             model=self.cfg.model,
-            system_prompt={"type": "preset", "preset": "claude_code", "append": VOICE_PROMPT},
+            system_prompt={"type": "preset", "preset": "claude_code", "append": voice_prompt(self.cfg.address_as)},
             mcp_servers=self._extra_mcp or {},
             include_partial_messages=True,
             can_use_tool=self._can_use_tool,

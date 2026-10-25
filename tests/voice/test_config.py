@@ -48,3 +48,9 @@ def test_paths_expand_user(tmp_path: Path) -> None:
     cfg = load_config(ex, None)
     assert cfg.vault == Path.home() / "x"
     assert cfg.data_dir == Path.home() / ".jarvis" / "voice"
+
+
+def test_shipped_example_defaults_to_daniel_and_sir():
+    cfg = load_config(Path(__file__).resolve().parents[2] / "config.voice.example.yaml", None)
+    assert cfg.tts_voice == "bm_daniel"
+    assert cfg.address_as == "sir"

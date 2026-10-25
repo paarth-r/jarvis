@@ -22,7 +22,8 @@ class VoiceConfig:
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     vocab_file: Path | None = Path("vocab.local.txt")
     self_chat_id: str | None = None
-    tts_voice: str = "af_heart"
+    tts_voice: str = "bm_daniel"
+    address_as: str = "sir"
     kokoro_model: Path
     kokoro_voices: Path
     smart_turn_model: Path

@@ -115,12 +115,14 @@ class TTS(Protocol):
 
 
 class KokoroTTS:
-    def __init__(self, model: Path, voices: Path, voice: str = "af_heart") -> None:
+    def __init__(self, model: Path, voices: Path, voice: str = "bm_daniel") -> None:
         from kokoro_onnx import Kokoro
 
         self._kokoro = Kokoro(str(model), str(voices))
         self._voice = voice
+        # Kokoro voice ids start with "b" for British English, "a" for American.
+        self._lang = "en-gb" if voice.startswith("b") else "en-us"
 
     def synth(self, text: str) -> tuple[np.ndarray, int]:
-        audio, sr = self._kokoro.create(text, voice=self._voice, speed=1.0, lang="en-us")
+        audio, sr = self._kokoro.create(text, voice=self._voice, speed=1.0, lang=self._lang)
         return audio, sr
