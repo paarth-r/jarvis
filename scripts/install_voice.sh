@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install the Jarvis voice service: venv, deps, models, and a login service.
 # macOS: LaunchAgent (runs in the user session so mic permission applies).
-# Linux: systemd user unit. Usage: scripts/install_voice.sh
+# Linux: deps, models and a systemd user unit, written but NOT enabled: STT is
+# MLX-only today, so the service would crash-loop until the faster-whisper
+# backend lands. Usage: scripts/install_voice.sh
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -68,8 +70,11 @@ Environment=PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin
 WantedBy=default.target
 UNIT
     systemctl --user daemon-reload
-    systemctl --user enable --now jarvis-voice.service
-    echo "Installed systemd user unit $UNIT_DIR/jarvis-voice.service"
+    # Not enabled or started: STT is MLX-only (Apple silicon), so on Linux the
+    # service would fail at startup and Restart=always would crash-loop it.
+    echo "Wrote systemd user unit $UNIT_DIR/jarvis-voice.service (not enabled)."
+    echo "Linux STT (faster-whisper) is a pending follow-up; the service cannot transcribe here yet."
+    echo "Once it lands: systemctl --user enable --now jarvis-voice.service"
     echo "For start-at-boot without login: sudo loginctl enable-linger $USER"
 else
     echo "Unsupported OS: $OS" >&2

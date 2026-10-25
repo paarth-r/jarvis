@@ -152,7 +152,8 @@ cp config.voice.example.yaml config.voice.local.yaml
 Set `vault` (and optionally `vocab_file`, a one-term-per-line list of names Whisper
 should spell right) in `config.voice.local.yaml`. Claude Code must be installed and
 logged in. `scripts/install_voice.sh` does all of the above and installs a login
-service (LaunchAgent on macOS, systemd user unit on Linux).
+service (LaunchAgent on macOS; on Linux the systemd user unit is written but not
+enabled until a faster-whisper STT backend lands).
 
 ### Run
 
@@ -176,12 +177,17 @@ built-in `hey_jarvis`, and fires the same way. For example,
 ### Confirmation rules
 
 - Reading (files, search, list/get/read MCP tools) and room control run without asking.
+- Also without asking: creating a calendar event with no attendees (it touches only
+  your calendar) and saving a Gmail draft (nothing is sent).
 - Writes inside the vault run without asking; writes outside it, shell commands, and
   any MCP tool that sends, replies, shares, deletes, creates or updates something are
   read back aloud and need a spoken yes.
 - Only a clean affirmative ("yes", "yeah", "do it", "send it", "go ahead", ...)
   proceeds. Silence, "no", or anything unclear cancels, and it says so. No retries.
-- Shell commands too long to read back are refused outright.
+- Actions too long to read back (long shell commands, huge recipient lists) are
+  refused outright.
+- The rules hold even for tools your Claude Code settings allowlist: they are
+  enforced in a PreToolUse hook, which runs before settings allow rules.
 
 ### Privacy
 

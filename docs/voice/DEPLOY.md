@@ -1,6 +1,6 @@
 # Deploying the voice agent
 
-The service is `jarvis-voice`, an always-on "hey Jarvis" front-end for headless Claude Code. Install with one script on either target; the script picks the right service manager.
+The service is `jarvis-voice`, an always-on "hey Jarvis" front-end for headless Claude Code. Install with one script on either target; the script picks the right service manager. On Linux it does not enable the service yet (see the Jetson notes).
 
 ## Common prerequisites
 
@@ -15,7 +15,7 @@ The service is `jarvis-voice`, an always-on "hey Jarvis" front-end for headless 
 scripts/install_voice.sh
 ```
 
-This creates `.venv-voice`, installs `.[voice]`, runs `scripts/fetch_voice_models.sh` if present, and installs the service. Models expected on disk: `models/kokoro/kokoro-v1.0.onnx`, `models/kokoro/voices-v1.0.bin`, `models/smart_turn/smart-turn-v3.2-cpu.onnx`.
+This creates `.venv-voice`, installs `.[voice]`, runs `scripts/fetch_voice_models.sh` (the install stops with an error if that script or any model is missing), and installs the service. Models expected on disk: `models/kokoro/kokoro-v1.0.onnx`, `models/kokoro/voices-v1.0.bin`, `models/smart_turn/smart-turn-v3.2-cpu.onnx`.
 
 Manual run, without the service:
 
@@ -36,8 +36,8 @@ The room API stub for testing without a real room backend is `.venv-voice/bin/ja
 
 ## Jetson Orin NX (Linux arm64)
 
-- The installer adds `faster-whisper` instead of `mlx-whisper` (MLX is Apple-only). Follow-up: the STT class must be swapped to a faster-whisper implementation before the service transcribes on Linux.
-- A systemd user unit is installed at `~/.config/systemd/user/jarvis-voice.service`. To start at boot without an interactive login: `sudo loginctl enable-linger $USER`.
+- Pending follow-up: Linux STT. Speech-to-text is MLX-only today (Apple silicon), so the service cannot transcribe on Linux until the STT class gains a faster-whisper implementation. The installer adds `faster-whisper` and fetches the models so the box is ready.
+- The installer writes a systemd user unit at `~/.config/systemd/user/jarvis-voice.service` but does not enable or start it: with `Restart=always` it would crash-loop until Linux STT lands. Once it does: `systemctl --user enable --now jarvis-voice.service`. To start at boot without an interactive login: `sudo loginctl enable-linger $USER`.
 - Logs: `journalctl --user -u jarvis-voice -f`.
 - Prerequisite, not implemented here: the vault must be a git clone of a private mirror repository, with pull-before-write and push-after-write. iCloud is not available on Linux. Set up the mirror and clone it before starting the service, then point `vault:` at the clone.
 - iMessage is unavailable on Linux, so leave `self_chat_id` null.
