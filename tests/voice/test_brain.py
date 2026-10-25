@@ -17,7 +17,14 @@ from claude_agent_sdk import (
     ToolPermissionContext,
 )
 
-from jarvis.voice.brain import VOICE_PROMPT, Brain, BrainTimeout
+from jarvis.voice.brain import (
+    DECLINED,
+    NO_CONFIRM,
+    TOO_LONG,
+    VOICE_PROMPT,
+    Brain,
+    BrainTimeout,
+)
 from jarvis.voice.config import VoiceConfig
 
 
@@ -65,6 +72,7 @@ class FakeClient:
     instances: list[FakeClient] = []
     script: list = []
     hang: bool = False
+    connect_hang: bool = False
     raise_exc: Exception | None = None
 
     def __init__(self, options):
@@ -75,6 +83,8 @@ class FakeClient:
         FakeClient.instances.append(self)
 
     async def connect(self, prompt=None):
+        if FakeClient.connect_hang:
+            await asyncio.sleep(3600)
         self.connected = True
 
     async def disconnect(self):
@@ -98,6 +108,7 @@ def reset_fake():
     FakeClient.script = [message_start(), delta("Hello "), delta("there."),
                          assistant("Hello there."), result()]
     FakeClient.hang = False
+    FakeClient.connect_hang = False
     FakeClient.raise_exc = None
     yield
 
@@ -260,7 +271,9 @@ async def test_permission_too_long_denied_without_asking(tmp_path, flag_dir):
     can_use_tool = FakeClient.instances[0].options.can_use_tool
     res = await can_use_tool("Bash", {"command": "echo " + "x" * 400}, ToolPermissionContext())
     assert isinstance(res, PermissionResultDeny)
-    assert res.message.startswith("That shell command is too long to confirm by voice.")
+    assert res.message == TOO_LONG
+    assert res.message.startswith("That action is too long to confirm by voice.")
+    assert "shell command" in res.message
     assert asked == []
 
 
@@ -270,6 +283,164 @@ async def test_permission_denied_without_confirm(tmp_path, flag_dir):
     can_use_tool = FakeClient.instances[0].options.can_use_tool
     res = await can_use_tool("Bash", {"command": "ls"}, ToolPermissionContext())
     assert isinstance(res, PermissionResultDeny)
+    assert res.message == NO_CONFIRM
+
+
+async def test_permission_not_asked_is_not_a_decline(tmp_path, flag_dir):
+    async def not_asked(prompt: str) -> None:
+        return None  # the loop had no active turn, so nobody was asked
+
+    brain = make_brain(tmp_path, flag_dir, confirm=not_asked)
+    await brain.start()
+    can_use_tool = FakeClient.instances[0].options.can_use_tool
+    res = await can_use_tool("Bash", {"command": "ls"}, ToolPermissionContext())
+    assert isinstance(res, PermissionResultDeny)
+    assert res.message == NO_CONFIRM
+    hook = pre_tool_use_hook(FakeClient.instances[0].options)
+    out = await hook(hook_input("Bash", {"command": "ls"}), "t1", {"signal": None})
+    assert decision(out) == ("deny", NO_CONFIRM)
+
+
+# -- PreToolUse hook: the policy must hold even when settings allow a tool ----
+
+IMESSAGE_REPLY = "mcp__plugin_imessage_imessage__reply"
+
+
+def pre_tool_use_hook(options):
+    matchers = options.hooks["PreToolUse"]
+    assert len(matchers) == 1 and len(matchers[0].hooks) == 1
+    return matchers[0].hooks[0]
+
+
+def hook_input(name: str, tool_input: dict, tool_use_id: str = "t1") -> dict:
+    return {
+        "hook_event_name": "PreToolUse", "session_id": "s", "transcript_path": "",
+        "cwd": "", "tool_name": name, "tool_input": tool_input,
+        "tool_use_id": tool_use_id,
+    }
+
+
+def decision(out: dict) -> tuple[str, str | None] | None:
+    specific = out.get("hookSpecificOutput")
+    if not specific or "permissionDecision" not in specific:
+        return None
+    assert specific["hookEventName"] == "PreToolUse"
+    return specific["permissionDecision"], specific.get("permissionDecisionReason")
+
+
+async def test_pre_tool_use_hook_registered_for_every_tool(tmp_path, flag_dir):
+    brain = make_brain(tmp_path, flag_dir, turn_timeout_s=180.0)
+    await brain.start()
+    matcher = FakeClient.instances[0].options.hooks["PreToolUse"][0]
+    assert matcher.matcher is None  # every tool, not a name pattern
+    # The hook must outlive the turn: a hook timeout would fall through to
+    # settings allow rules, so the turn timeout has to fire first.
+    assert matcher.timeout is not None and matcher.timeout > 180.0
+
+
+async def test_hook_asks_for_a_settings_allowlisted_tool(tmp_path, flag_dir):
+    asked: list[str] = []
+
+    async def approve(prompt: str) -> bool:
+        asked.append(prompt)
+        return True
+
+    brain = make_brain(tmp_path, flag_dir, confirm=approve, self_chat_id="self-chat")
+    await brain.start()
+    options = FakeClient.instances[0].options
+    hook = pre_tool_use_hook(options)
+    tool_input = {"chat_id": "someone-else", "text": "running late"}
+
+    out = await hook(hook_input(IMESSAGE_REPLY, tool_input, "t1"), "t1", {"signal": None})
+    assert decision(out) == ("allow", None)
+    assert len(asked) == 1 and "someone-else" in asked[0]
+
+    # The same tool call reaching the backstop is never asked about twice.
+    res = await options.can_use_tool(
+        IMESSAGE_REPLY, tool_input, ToolPermissionContext(tool_use_id="t1"))
+    assert isinstance(res, PermissionResultAllow)
+    assert len(asked) == 1
+
+
+async def test_hook_denies_when_declined(tmp_path, flag_dir):
+    async def deny(prompt: str) -> bool:
+        return False
+
+    brain = make_brain(tmp_path, flag_dir, confirm=deny, self_chat_id="self-chat")
+    await brain.start()
+    hook = pre_tool_use_hook(FakeClient.instances[0].options)
+    out = await hook(hook_input(IMESSAGE_REPLY, {"chat_id": "x", "text": "hi"}),
+                     "t1", {"signal": None})
+    assert decision(out) == ("deny", DECLINED)
+
+
+async def test_hook_denies_too_long_without_asking(tmp_path, flag_dir):
+    asked: list[str] = []
+
+    async def approve(prompt: str) -> bool:
+        asked.append(prompt)
+        return True
+
+    brain = make_brain(tmp_path, flag_dir, confirm=approve)
+    await brain.start()
+    hook = pre_tool_use_hook(FakeClient.instances[0].options)
+    out = await hook(hook_input("Bash", {"command": "echo " + "x" * 400}),
+                     "t1", {"signal": None})
+    assert decision(out) == ("deny", TOO_LONG)
+    assert asked == []
+
+
+async def test_hook_leaves_policy_allowed_tools_alone(tmp_path, flag_dir):
+    asked: list[str] = []
+
+    async def approve(prompt: str) -> bool:
+        asked.append(prompt)
+        return True
+
+    brain = make_brain(tmp_path, flag_dir, confirm=approve)
+    await brain.start()
+    hook = pre_tool_use_hook(FakeClient.instances[0].options)
+    out = await hook(hook_input("Read", {"file_path": "/etc/hosts"}), "t1", {"signal": None})
+    assert decision(out) is None  # no decision: settings deny rules still apply
+    assert asked == []
+
+
+async def test_hook_denies_when_confirm_raises(tmp_path, flag_dir):
+    async def broken(prompt: str) -> bool:
+        raise RuntimeError("mic gone")
+
+    brain = make_brain(tmp_path, flag_dir, confirm=broken)
+    await brain.start()
+    hook = pre_tool_use_hook(FakeClient.instances[0].options)
+    out = await hook(hook_input("Bash", {"command": "ls"}), "t1", {"signal": None})
+    assert decision(out)[0] == "deny"
+
+
+# -- shutdown -----------------------------------------------------------------
+
+async def test_close_disconnects_a_client_whose_connect_was_cancelled(tmp_path, flag_dir):
+    FakeClient.connect_hang = True
+    brain = make_brain(tmp_path, flag_dir)
+    starting = asyncio.create_task(brain.start())
+    await asyncio.sleep(0.01)
+    starting.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await starting
+    await brain.close()
+    assert FakeClient.instances[0].disconnected
+
+
+async def test_close_survives_a_cancelled_warm_up(tmp_path, flag_dir):
+    brain = make_brain(tmp_path, flag_dir)
+    await brain.start()
+    first = FakeClient.instances[0]
+    FakeClient.connect_hang = True
+    await brain.reset()  # starts a background warm-up that hangs in connect
+    await asyncio.sleep(0.01)
+    brain._warming.cancel()
+    await brain.close()  # must not raise CancelledError, must still clean up
+    assert first.disconnected
+    assert FakeClient.instances[1].disconnected
 
 
 async def test_skip_flag_written(tmp_path, flag_dir):
@@ -303,3 +474,35 @@ async def test_live_sdk_smoke(tmp_path, flag_dir):
         await brain.close()
     assert "ok" in text.lower()
     assert brain.session_id and (flag_dir / brain.session_id).exists()
+
+
+@pytest.mark.live
+@pytest.mark.skipif(os.environ.get("JARVIS_LIVE") != "1", reason="set JARVIS_LIVE=1")
+async def test_live_hook_beats_a_settings_allow_rule(tmp_path, flag_dir):
+    """A tool allowlisted in settings still needs a spoken yes (via the hook)."""
+    import json
+    from dataclasses import replace
+
+    from claude_agent_sdk import ClaudeSDKClient
+
+    settings = tmp_path / ".claude" / "settings.local.json"
+    settings.parent.mkdir()
+    settings.write_text(json.dumps({"permissions": {"allow": ["Bash(echo *)"]}}))
+    asked: list[str] = []
+
+    async def decline(prompt: str) -> bool:
+        asked.append(prompt)
+        return False
+
+    def factory(options):
+        return ClaudeSDKClient(replace(options, max_turns=3))
+
+    cfg = make_cfg(tmp_path, turn_timeout_s=120.0)
+    brain = Brain(cfg, confirm=decline, client_factory=factory, flag_dir=flag_dir)
+    await brain.start()
+    try:
+        await collect(brain, "Use the Bash tool to run exactly this command: "
+                             "echo jarvis-hook-check. Then reply with one word.")
+    finally:
+        await brain.close()
+    assert any("jarvis-hook-check" in q for q in asked), asked

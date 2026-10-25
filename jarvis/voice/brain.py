@@ -4,14 +4,20 @@ The client is connected at boot and kept warm because claude.ai connectors
 (Gmail, Calendar) only finish connecting several seconds after session start.
 After a reset, timeout or crash the old client is dropped and a replacement is
 pre-warmed in the background, so the next turn rarely pays the startup cost.
+
+The voice permission policy is enforced in a PreToolUse hook, not only in
+``can_use_tool``: the CLI applies allow rules from settings files before it
+consults ``can_use_tool``, so a tool allowlisted in the user's settings would
+otherwise run without a spoken yes. Hooks run for every tool call regardless of
+permission rules. ``can_use_tool`` stays as a backstop with the same policy.
 """
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -20,6 +26,8 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    HookContext,
+    HookMatcher,
     PermissionResultAllow,
     PermissionResultDeny,
     ResultMessage,
@@ -46,10 +54,16 @@ VOICE_PROMPT = (
 DECLINED = "Declined by voice."
 NO_CONFIRM = "No voice confirmation is available, so this action was not run."
 TOO_LONG = (
-    "That shell command is too long to confirm by voice. Split it into shorter "
-    "commands or write it to a script in the vault and run that."
+    "That action is too long to confirm by voice. If it is a shell command, split "
+    "it into shorter commands or write it to a script in the vault and run that; "
+    "otherwise make it smaller, for example fewer recipients."
 )
+POLICY_ERROR = "The voice permission check failed, so this action was not run."
 DISCONNECT_TIMEOUT_S = 10.0
+# The hook must outlive the turn: if it timed out first, the CLI would fall back
+# to settings allow rules. The turn timeout fires first and recycles the client.
+HOOK_TIMEOUT_MARGIN_S = 60.0
+MAX_APPROVED_IDS = 256
 
 
 class BrainTimeout(Exception):
@@ -60,7 +74,7 @@ class Brain:
     def __init__(
         self,
         cfg: VoiceConfig,
-        confirm: Callable[[str], Awaitable[bool]] | None = None,
+        confirm: Callable[[str], Awaitable[bool | None]] | None = None,
         extra_mcp: dict | None = None,
         client_factory: Callable[[ClaudeAgentOptions], Any] = ClaudeSDKClient,
         flag_dir: Path = Path("/tmp/claude-skip-synthesis"),
@@ -74,6 +88,8 @@ class Brain:
         self._flag_dir = Path(flag_dir)
         self._clock = clock
         self._client: Any | None = None
+        self._connecting: set[Any] = set()  # clients whose connect() never finished
+        self._approved: OrderedDict[str, None] = OrderedDict()  # tool_use_ids said yes to
         self._warming: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
         self._last_active = clock()
@@ -99,16 +115,33 @@ class Brain:
         self._recycle()
 
     async def close(self) -> None:
-        """Disconnect everything (shutdown)."""
+        """Disconnect everything (shutdown).
+
+        Safe to call while shutting down on Ctrl-C: a cancelled warm-up or an
+        interrupted connect never skips the disconnects. If this task itself is
+        being cancelled, the cancellation is re-raised after cleanup.
+        """
+        clients: list[Any] = []
         if self._warming is not None:
             task, self._warming = self._warming, None
-            with contextlib.suppress(Exception):
-                self._client = await task
+            try:
+                clients.append(await task)
+            except (Exception, asyncio.CancelledError) as exc:
+                # A cancelled warm-up raises CancelledError here even when this
+                # task is not being cancelled; either way, keep cleaning up.
+                log.debug("brain warm-up ended without a client: %r", exc)
         client, self._client = self._client, None
         if client is not None:
-            await self._disconnect(client)
+            clients.append(client)
+        clients += [c for c in self._connecting if c not in clients]
+        self._connecting.clear()
+        for c in clients:
+            await self._disconnect(c)
         if self._background:
             await asyncio.gather(*self._background, return_exceptions=True)
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise asyncio.CancelledError
 
     # -- turns -------------------------------------------------------------
 
@@ -177,22 +210,68 @@ class Brain:
 
     # -- permissions -------------------------------------------------------
 
-    async def _can_use_tool(
-        self, name: str, tool_input: dict, ctx: ToolPermissionContext
-    ) -> PermissionResultAllow | PermissionResultDeny:
+    def _needs_confirm(self, name: str, tool_input: dict) -> bool:
         verdict = classify_tool(name, tool_input, self.cfg.vault, self.cfg.self_chat_id)
-        if verdict == "allow":
-            return PermissionResultAllow()
+        return verdict != "allow"
+
+    async def _confirm_action(self, name: str, tool_input: dict) -> str | None:
+        """Ask by voice. None if approved, else the reason the call is denied."""
         if too_long_to_confirm(name, tool_input):
-            return PermissionResultDeny(message=TOO_LONG)
+            return TOO_LONG
         if self.confirm is None:
-            return PermissionResultDeny(message=NO_CONFIRM)
+            return NO_CONFIRM
         try:
             approved = await self.confirm(describe_action(name, tool_input))
         except Exception:
             log.exception("voice confirmation failed; treating as declined")
-            approved = False
-        return PermissionResultAllow() if approved else PermissionResultDeny(message=DECLINED)
+            return DECLINED
+        if approved is None:  # nobody was asked (no active turn)
+            return NO_CONFIRM
+        return None if approved else DECLINED
+
+    async def _pre_tool_use(
+        self, input_data: Any, tool_use_id: str | None, context: HookContext
+    ) -> dict[str, Any]:
+        """PreToolUse hook: the policy, evaluated before settings allow rules.
+
+        Policy-allowed tools get no decision, so the CLI's own rules (including
+        the user's deny rules) still apply. Anything else is decided here.
+        Never raises: a failing hook would fall through to settings rules.
+        """
+        try:
+            name = str(input_data.get("tool_name", ""))
+            tool_input = input_data.get("tool_input") or {}
+            if not self._needs_confirm(name, tool_input):
+                return {}
+            denial = await self._confirm_action(name, tool_input)
+        except Exception:
+            log.exception("voice permission hook failed; denying")
+            denial = POLICY_ERROR
+        if denial is not None:
+            return _hook_decision("deny", denial)
+        self._remember_approved(tool_use_id or input_data.get("tool_use_id"))
+        return _hook_decision("allow")
+
+    async def _can_use_tool(
+        self, name: str, tool_input: dict, ctx: ToolPermissionContext
+    ) -> PermissionResultAllow | PermissionResultDeny:
+        """Backstop with the same policy; never asks twice for one tool call."""
+        if ctx.tool_use_id is not None and ctx.tool_use_id in self._approved:
+            del self._approved[ctx.tool_use_id]  # the hook already got a spoken yes
+            return PermissionResultAllow()
+        if not self._needs_confirm(name, tool_input):
+            return PermissionResultAllow()
+        denial = await self._confirm_action(name, tool_input)
+        if denial is not None:
+            return PermissionResultDeny(message=denial)
+        return PermissionResultAllow()
+
+    def _remember_approved(self, tool_use_id: str | None) -> None:
+        if not tool_use_id:
+            return
+        self._approved[tool_use_id] = None
+        while len(self._approved) > MAX_APPROVED_IDS:
+            self._approved.popitem(last=False)
 
     # -- client management -------------------------------------------------
 
@@ -205,6 +284,15 @@ class Brain:
             mcp_servers=self._extra_mcp or {},
             include_partial_messages=True,
             can_use_tool=self._can_use_tool,
+            hooks={
+                "PreToolUse": [
+                    HookMatcher(
+                        matcher=None,
+                        hooks=[self._pre_tool_use],
+                        timeout=self.cfg.turn_timeout_s + HOOK_TIMEOUT_MARGIN_S,
+                    )
+                ]
+            },
             session_id=session_id,
         )
 
@@ -214,7 +302,15 @@ class Brain:
         session_id = str(uuid.uuid4())
         self._record_session(session_id)
         client = self._client_factory(self._options(session_id))
-        await client.connect()
+        self._connecting.add(client)
+        try:
+            await client.connect()
+        except Exception:
+            self._connecting.discard(client)
+            self._spawn(self._disconnect(client))
+            raise
+        # On cancellation the client stays tracked so close() disconnects it.
+        self._connecting.discard(client)
         return client
 
     async def _ready(self) -> Any:
@@ -257,3 +353,10 @@ class Brain:
             (self._flag_dir / session_id).touch()
         except OSError:
             log.warning("could not write skip-synthesis flag for %s", session_id)
+
+
+def _hook_decision(decision: str, reason: str | None = None) -> dict[str, Any]:
+    specific: dict[str, Any] = {"hookEventName": "PreToolUse", "permissionDecision": decision}
+    if reason is not None:
+        specific["permissionDecisionReason"] = reason
+    return {"hookSpecificOutput": specific}
