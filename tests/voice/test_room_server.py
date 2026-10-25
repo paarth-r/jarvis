@@ -49,3 +49,58 @@ def test_http_volume_round_trip():
     finally:
         server.shutdown()
         server.server_close()
+
+
+class FakeSearch:
+    """Spotify search double: callable for play, .search for listings."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, query, kind="track"):
+        self.calls.append((query, kind))
+        return f"spotify:{kind}:X1"
+
+    def search(self, query, kind="track", limit=5):
+        self.calls.append((query, kind, limit))
+        return [{"uri": f"spotify:{kind}:X1", "name": "Lofi Beats", "by": "Spotify", "kind": kind}]
+
+
+def test_play_a_playlist_by_name_then_skip_and_shuffle():
+    mac, search = FakeMac(), FakeSearch()
+    room = RoomState(MacSpeakers(mac, search=search), only=REAL_DEVICES)
+    status, _ = room.patch("speakers", {"query": "lofi beats", "kind": "playlist"})
+    assert status == 200 and search.calls == [("lofi beats", "playlist")]
+    assert 'tell application "Spotify" to play track "spotify:playlist:X1"' in mac.scripts
+    room.patch("speakers", {"skip": "next", "shuffle": True})
+    assert 'tell application "Spotify" to next track' in mac.scripts
+    assert 'tell application "Spotify" to set shuffling to true' in mac.scripts
+    assert room.patch("speakers", {"kind": "podcast", "query": "x"})[0] == 400
+    assert room.patch("speakers", {"skip": "sideways"})[0] == 400
+
+
+def test_search_endpoint_and_tool():
+    import asyncio
+
+    from jarvis.voice.room import RoomClient, make_room_tools
+
+    server = make_server("127.0.0.1", 0, MacSpeakers(FakeMac(), search=FakeSearch()), REAL_DEVICES)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urllib.request.urlopen(f"{base}/search?q=lofi&kind=playlist") as r:
+            assert json.loads(r.read())[0]["uri"] == "spotify:playlist:X1"
+        tool = {t.name: t for t in make_room_tools(RoomClient(base))}["search_music"]
+        out = asyncio.run(tool.handler({"query": "radiohead", "kind": "artist"}))
+        assert "spotify:artist:X1" in out["content"][0]["text"] and not out.get("is_error")
+        bad = asyncio.run(tool.handler({"query": "x", "kind": "podcast"}))
+        assert bad.get("is_error")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_search_without_credentials_is_a_clear_error():
+    room = RoomState(MacSpeakers(FakeMac()), only=REAL_DEVICES)
+    status, body = room.search("lofi", "playlist", 5)
+    assert status == 502 and "not set up" in body["error"]

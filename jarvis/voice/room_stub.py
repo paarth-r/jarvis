@@ -9,9 +9,10 @@ import copy
 import json
 import sys
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from jarvis.voice.mac_speakers import MacSpeakers, SpeakerError, SpotifySearch
+from jarvis.voice.mac_speakers import KINDS, MacSpeakers, SpeakerError, SpotifySearch
 
 DEFAULT_PORT = 8790
 
@@ -35,6 +36,9 @@ _SCHEMA = {
         "playing": (lambda v: isinstance(v, bool), "a boolean"),
         "query": (lambda v: isinstance(v, str), "a string"),
         "volume": (lambda v: _is_int(v, 0, 100), "an integer 0-100"),
+        "kind": (lambda v: v in KINDS, "one of " + ", ".join(KINDS)),
+        "skip": (lambda v: v in ("next", "previous"), "next or previous"),
+        "shuffle": (lambda v: isinstance(v, bool), "a boolean"),
     },
 }
 
@@ -73,6 +77,18 @@ class RoomState:
         with self._lock:
             dev = self._devices.get(did)
             return self._live(dev) if dev else None
+
+    def search(self, query: str, kind: str, limit: int) -> tuple[int, object]:
+        if self._speakers is None:
+            return 404, {"error": "search needs the real speakers (jarvis-room)"}
+        if not query.strip():
+            return 400, {"error": "q is required"}
+        if kind not in KINDS:
+            return 400, {"error": "kind must be one of " + ", ".join(KINDS)}
+        try:
+            return 200, self._speakers.search(query, kind, limit)
+        except SpeakerError as exc:
+            return 502, {"error": str(exc)}
 
     def patch(self, did: str, patch: object) -> tuple[int, dict]:
         with self._lock:
@@ -119,6 +135,13 @@ def _make_handler(room: RoomState) -> type[BaseHTTPRequestHandler]:
                 self._send(502, {"error": str(exc)})
 
         def _get(self) -> None:
+            path, _, qs = self.path.partition("?")
+            if path.rstrip("/") == "/search":
+                params = urllib.parse.parse_qs(qs)
+                first = lambda k, d: (params.get(k) or [d])[0]  # noqa: E731
+                limit = int(first("limit", "5")) if first("limit", "5").isdigit() else 5
+                self._send(*room.search(first("q", ""), first("kind", "track"), limit))
+                return
             if self.path.split("?")[0].rstrip("/") == "/devices":
                 self._send(200, room.list())
                 return

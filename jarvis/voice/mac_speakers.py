@@ -21,8 +21,9 @@ from typing import Callable
 
 # runs one AppleScript, returns stdout stripped; raises SpeakerError on failure
 Osascript = Callable[[str], str]
-# resolves a free-text query to a spotify: URI
-Search = Callable[[str], str]
+# resolves a free-text query of a kind (track/album/playlist/artist) to a spotify: URI
+Search = Callable[[str, str], str]
+KINDS = ("track", "album", "playlist", "artist")
 
 
 class SpeakerError(Exception):
@@ -86,14 +87,31 @@ class SpotifySearch:
         except Exception as exc:
             raise SpeakerError(f"Spotify search failed: {exc}") from exc
 
-    def __call__(self, query: str) -> str:
+    def search(self, query: str, kind: str = "track", limit: int = 5) -> list[dict]:
+        """Top results of one kind as {uri, name, by, kind}."""
+        if kind not in KINDS:
+            raise SpeakerError(f"kind must be one of {', '.join(KINDS)}")
         url = "https://api.spotify.com/v1/search?" + urllib.parse.urlencode(
-            {"q": query, "type": "track", "limit": 1})
+            {"q": query, "type": kind, "limit": max(1, min(limit, 10))})
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self._get_token()}"})
-        items = self._fetch(req).get("tracks", {}).get("items", [])
-        if not items:
-            raise SpeakerError(f"no Spotify track found for '{query}'")
-        return items[0]["uri"]
+        items = self._fetch(req).get(f"{kind}s", {}).get("items", [])
+        return [_summarize(item, kind) for item in items if item]  # playlists can hold nulls
+
+    def __call__(self, query: str, kind: str = "track") -> str:
+        results = self.search(query, kind, limit=1)
+        if not results:
+            raise SpeakerError(f"no Spotify {kind} found for '{query}'")
+        return results[0]["uri"]
+
+
+def _summarize(item: dict, kind: str) -> dict:
+    if kind in ("track", "album"):
+        by = ", ".join(a.get("name", "") for a in item.get("artists", []))
+    elif kind == "playlist":
+        by = (item.get("owner") or {}).get("display_name", "")
+    else:
+        by = ""
+    return {"uri": item.get("uri", ""), "name": item.get("name", ""), "by": by, "kind": kind}
 
 
 # the track lookup fails when Spotify has nothing loaded, so it is guarded
@@ -126,21 +144,36 @@ class MacSpeakers:
             playing = status == "playing"
         return {"playing": playing, "query": self._query, "volume": volume, "now_playing": track}
 
-    def _resolve(self, query: str) -> str:
+    def _resolve(self, query: str, kind: str = "track") -> str:
         uri = to_spotify_uri(query)
         if uri:
             return uri
         if self._search is None:
             raise SpeakerError("Spotify search is not set up (SPOTIFY_CLIENT_ID/SECRET); "
                                "only Spotify links can be played")
-        return self._search(query)
+        return self._search(query, kind)
+
+    def search(self, query: str, kind: str = "track", limit: int = 5) -> list[dict]:
+        if self._search is None or not hasattr(self._search, "search"):
+            raise SpeakerError("Spotify search is not set up (SPOTIFY_CLIENT_ID/SECRET)")
+        return self._search.search(query, kind, limit)  # type: ignore[attr-defined]
 
     def apply(self, patch: dict) -> None:
-        """Apply an already-validated patch: query, then playing, then volume."""
+        """Apply an already-validated patch: query, skip, shuffle, playing, volume.
+
+        `query` is a song/album/playlist/artist name (pick which with `kind`,
+        default track) or a Spotify link; albums, playlists and artists play as
+        a whole.
+        """
         if "query" in patch and patch["query"].strip():
-            uri = self._resolve(patch["query"])
+            uri = self._resolve(patch["query"], patch.get("kind", "track"))
             self._osa(f'tell application "Spotify" to play track "{uri}"')
             self._query = patch["query"]
+        if "skip" in patch:
+            verb = "next track" if patch["skip"] == "next" else "previous track"
+            self._osa(f'tell application "Spotify" to {verb}')
+        if "shuffle" in patch:
+            self._osa(f'tell application "Spotify" to set shuffling to {str(patch["shuffle"]).lower()}')
         if "playing" in patch:
             if patch["playing"]:
                 if "query" not in patch:

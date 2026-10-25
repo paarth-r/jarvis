@@ -44,7 +44,7 @@ def test_state_does_not_launch_spotify():
 
 def test_query_searches_then_plays_uri():
     mac = FakeMac()
-    MacSpeakers(mac, search=lambda q: "spotify:track:XYZ").apply({"query": "clair de lune", "playing": True})
+    MacSpeakers(mac, search=lambda q, k: "spotify:track:XYZ").apply({"query": "clair de lune", "playing": True})
     plays = [s for s in mac.scripts if "play" in s and "player state" not in s]
     assert plays == ['tell application "Spotify" to play track "spotify:track:XYZ"']
 

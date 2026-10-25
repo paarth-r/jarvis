@@ -54,6 +54,10 @@ class RoomClient:
     async def get_state(self, device_id: str) -> dict:
         return await self._request("GET", self._device_path(device_id))
 
+    async def search_music(self, query: str, kind: str = "track") -> list[dict]:
+        from urllib.parse import urlencode
+        return await self._request("GET", "/search?" + urlencode({"q": query, "kind": kind}))
+
     async def set_state(self, device_id: str, patch: dict) -> dict:
         return await self._request("POST", self._device_path(device_id), patch)
 
@@ -100,7 +104,22 @@ def make_room_tools(client: RoomClient) -> list[SdkMcpTool]:
             return _err(RoomError("patch must be a non-empty object"))
         return await _guarded(lambda: client.set_state(device, patch))
 
-    return [list_devices, get_state, set_state]
+    @tool(
+        "search_music",
+        "Search Spotify. kind is track, album, playlist or artist. Returns the top "
+        "matches as {uri, name, by}. Play one with set_state(device='speakers', "
+        "patch={'query': <uri>}); or skip searching and send patch={'query': 'lofi "
+        "beats', 'kind': 'playlist'} to play the top match directly. Speakers also "
+        "take {'skip': 'next'|'previous'}, {'shuffle': bool}, {'playing': bool}, "
+        "{'volume': 0-100}.",
+        {"query": str, "kind": str},
+    )
+    async def search_music(args: dict[str, Any]) -> dict[str, Any]:
+        query = (args or {}).get("query") or ""
+        kind = (args or {}).get("kind") or "track"
+        return await _guarded(lambda: client.search_music(query, kind))
+
+    return [list_devices, get_state, set_state, search_music]
 
 
 def build_room_server(base_url: str):
