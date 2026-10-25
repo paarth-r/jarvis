@@ -71,3 +71,4 @@ mouse_control = ["*.task"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["live: hits real external services (set JARVIS_LIVE=1)"]
