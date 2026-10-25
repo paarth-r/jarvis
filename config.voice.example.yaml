@@ -1,5 +1,6 @@
 # Voice agent config. Copy to config.voice.local.yaml (gitignored) to override.
-# Relative paths resolve against the current working directory; "~" is expanded.
+# Relative paths resolve against the current working directory, falling back to
+# the repo root when missing there; "~" is expanded.
 vault: ~/path/to/your/vault
 model: claude-opus-5-5
 wake_threshold: 0.5

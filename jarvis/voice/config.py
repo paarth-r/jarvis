@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-_PATH_FIELDS = {
+PATH_FIELDS = {
     "vault", "wake_models_dir", "vocab_file", "kokoro_model", "kokoro_voices",
     "smart_turn_model", "data_dir",
 }
@@ -52,7 +52,7 @@ def load_config(example: Path, local: Path | None) -> VoiceConfig:
     unknown = sorted(set(raw) - known)
     if unknown:
         raise ValueError(f"unknown voice config key(s): {', '.join(unknown)}")
-    for key in _PATH_FIELDS & raw.keys():
+    for key in PATH_FIELDS & raw.keys():
         if raw[key] is not None:
             raw[key] = Path(raw[key]).expanduser()
     return VoiceConfig(**raw)

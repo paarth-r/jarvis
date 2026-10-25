@@ -39,3 +39,23 @@ def test_config_paths_prefer_the_working_directory(tmp_path, monkeypatch):
     # Absolute paths and paths found nowhere are left alone.
     assert resolve_config_path(tmp_path / "nope.yaml") == tmp_path / "nope.yaml"
     assert resolve_config_path(Path("missing.yaml")) == Path("missing.yaml")
+
+
+def test_relative_paths_inside_the_config_fall_back_too(tmp_path, monkeypatch):
+    from jarvis.voice.config import VoiceConfig
+    from jarvis.voice.main import resolve_paths
+
+    root = tmp_path / "repo"
+    (root / "models").mkdir(parents=True)
+    (root / "models" / "turn.onnx").write_bytes(b"")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    cfg = VoiceConfig(vault=Path("/abs/vault"), kokoro_model=Path("missing.onnx"),
+                      kokoro_voices=Path("missing.bin"),
+                      smart_turn_model=Path("models/turn.onnx"), vocab_file=None)
+    out = resolve_paths(cfg, root)
+    assert out.smart_turn_model == root / "models" / "turn.onnx"
+    assert out.kokoro_model == Path("missing.onnx")  # found nowhere: left alone
+    assert out.vault == Path("/abs/vault")
+    assert out.vocab_file is None

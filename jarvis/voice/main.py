@@ -5,27 +5,37 @@ import argparse
 import asyncio
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 
-from jarvis.voice.config import VoiceConfig, load_config
+from jarvis.voice.config import PATH_FIELDS, VoiceConfig, load_config
 
 DEFAULT_CONFIG = Path("config.voice.example.yaml")
 DEFAULT_LOCAL = Path("config.voice.local.yaml")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def resolve_config_path(path: Path) -> Path:
-    """A relative config path missing from the cwd falls back to the repo root.
+def resolve_config_path(path: Path, root: Path = REPO_ROOT) -> Path:
+    """A relative path missing from the cwd falls back to the repo root.
 
-    Lets a manual run from another directory find the repo's config files.
+    Lets a manual run from another directory find the repo's config and models.
     """
     if path.is_absolute() or path.exists():
         return path
-    candidate = REPO_ROOT / path
+    candidate = root / path
     return candidate if candidate.exists() else path
+
+
+def resolve_paths(cfg: VoiceConfig, root: Path = REPO_ROOT) -> VoiceConfig:
+    """Apply the repo-root fallback to every relative path in the config."""
+    changes = {
+        name: resolve_config_path(value, root)
+        for name in PATH_FIELDS
+        if isinstance(value := getattr(cfg, name), Path)
+    }
+    return replace(cfg, **changes)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -135,7 +145,8 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr,
                         format="[voice] %(name)s %(levelname)s %(message)s")
     logging.getLogger("jarvis").setLevel(logging.INFO)
-    cfg = load_config(resolve_config_path(args.config), resolve_config_path(args.local))
+    cfg = resolve_paths(
+        load_config(resolve_config_path(args.config), resolve_config_path(args.local)))
     room = not args.no_room
     try:
         if args.check:
