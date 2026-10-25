@@ -138,7 +138,7 @@ def test_round2_readbacks():
         "mcp__claude_ai_Google_Calendar__create_event",
         {"summary": "T", "attendeeEmails": "a@b.c", "guestPermissions": {"x": 1}},
     )
-    assert "with 1 attendees" in c
+    assert c.endswith("with 1 attendee?")
     assert describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1"}) == "Send your saved draft?"
     b = describe_action("Bash", {"command": "echo a\nrm -rf x"})
     assert "echo a then rm" in b
@@ -296,3 +296,71 @@ def test_round4_calendar_readbacks():
     assert describe_action(
         "mcp__notion__notion-calendar-create-events", {"events": [{"title": "L", "attendees": ["a", "b"]}]}
     ) == "Create the Notion calendar event L with 2 attendees?"
+
+
+def _cal(summary, attendees=None):
+    item = {"calendar": {"accountId": "a", "calendarId": "c"}, "eventId": "e"}
+    if summary:
+        item["eventSummary"] = summary
+    return item
+
+
+def test_round5_notion_multi_event_readbacks():
+    cancel = "mcp__notion__notion-calendar-cancel-events"
+    out = describe_action(cancel, {"events": [_cal("Standup"), _cal("Board meeting"), _cal("Wedding")]})
+    assert out == "Cancel 3 Notion calendar events: Standup, Board meeting, and Wedding?"
+    assert describe_action(cancel, {"events": [_cal("Standup")]}) == "Cancel the Notion calendar event Standup?"
+    assert describe_action(cancel, {"events": [_cal("A"), _cal(None)]}) == "Cancel 2 Notion calendar events?"
+    create = "mcp__notion__notion-calendar-create-events"
+    ev = [
+        {"summary": "Lunch", "attendees": [{"email": "a@x.com"}]},
+        {"summary": "Tennis", "attendees": [{"email": "b@x.com"}, {"email": "c@x.com"}]},
+        {"summary": "Gym"},
+    ]
+    assert describe_action(create, {"timeZone": "UTC", "events": ev}) == (
+        "Create 3 Notion calendar events: Lunch with 1 attendee, Tennis with 2 attendees, and Gym?"
+    )
+    upd = "mcp__notion__notion-calendar-update-events"
+    updates = [
+        {"updateType": "UPDATE", "event": _cal(None), "update": {"attendees": [{"email": "a@x.com"}]}},
+        {"updateType": "UPDATE", "event": _cal(None), "update": {"location": "x"}},
+    ]
+    assert describe_action(upd, {"timeZone": "UTC", "updates": updates}) == (
+        "Change 2 Notion calendar events, some with attendees?"
+    )
+    two = [{"updateType": "UPDATE", "event": _cal("A"), "update": {}},
+           {"updateType": "UPDATE", "event": _cal("B"), "update": {"summary": "B2"}}]
+    assert describe_action(upd, {"timeZone": "UTC", "updates": two}) == "Change 2 Notion calendar events: A and B?"
+
+
+def test_round5_recipient_keys_and_formatting():
+    send = "mcp__claude_ai_Gmail__send_message"
+    out = describe_action(send, {"To": ["a@x.com"], "CC": ["c@x.com"], "BCC": ["b@x.com"], "subject": "s"})
+    assert "a@x.com" in out and "copying c@x.com" in out and "blind copy to b@x.com" in out
+    out = describe_action(send, {"message": {"to": ["n@x.com"], "Bcc": "h@x.com"}, "subject": "s"})
+    assert "n@x.com" in out and "h@x.com" in out
+    reply = "mcp__claude_ai_Gmail__reply"
+    assert describe_action(reply, {"messageId": "m", "to": ["  "], "cc": [""], "Bcc": " "}) == (
+        "Reply to the email thread?"
+    )
+    assert describe_action(reply, {"messageId": "m", "to": ["john_doe@x.com"]}) == (
+        "Reply to the thread, sending to john_doe@x.com?"
+    )
+    assert describe_action("mcp__claude_ai_Gmail__forward", {"messageId": "m", "To": ["a_b@x.com"]}) == (
+        "Forward the email to a_b@x.com?"
+    )
+    one = describe_action("mcp__claude_ai_Google_Calendar__create_event", {"summary": "T", "attendees": ["a"]})
+    assert one.endswith("with 1 attendee?")
+
+
+def test_round5_long_readback_is_too_long():
+    many = [f"person{i}@example.com" for i in range(200)]
+    for name, inp in (
+        ("mcp__claude_ai_Gmail__send_message", {"to": many, "subject": "s"}),
+        ("mcp__claude_ai_Gmail__reply", {"messageId": "m", "bcc": many}),
+        ("mcp__claude_ai_Gmail__forward", {"messageId": "m", "cc": many}),
+    ):
+        assert too_long_to_confirm(name, inp), name
+    assert not too_long_to_confirm("mcp__claude_ai_Gmail__send_message", {"to": ["a@x.com"], "subject": "s"})
+    assert too_long_to_confirm("Bash", {"command": "x" * 201})
+    assert not too_long_to_confirm("Bash", {"command": "ls"})

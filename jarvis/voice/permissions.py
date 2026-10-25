@@ -39,6 +39,7 @@ AFFIRMATIVES = {
 }
 MAX_SPOKEN = 80
 MAX_BASH_CONFIRM = 200
+MAX_READBACK = 300
 
 
 def _inside(path_str: object, vault: Path) -> bool:
@@ -131,8 +132,17 @@ def classify_tool(
 
 
 def too_long_to_confirm(name: str, tool_input: dict) -> bool:
-    """True when the action cannot be read back in full (Bash over 200 chars)."""
-    return name == "Bash" and len(str(tool_input.get("command", ""))) > MAX_BASH_CONFIRM
+    """True when the action cannot be read back in full.
+
+    Bash commands over 200 chars, or any spoken read-back over 300 chars
+    (e.g. a 200-address recipient list), are too long to approve by voice.
+    """
+    if name == "Bash" and len(str(tool_input.get("command", ""))) > MAX_BASH_CONFIRM:
+        return True
+    try:
+        return len(describe_action(name, tool_input)) > MAX_READBACK
+    except Exception:
+        return True
 
 
 def is_affirmative(transcript: str | None) -> bool:
@@ -164,25 +174,54 @@ def _clip(value: object, limit: int = MAX_SPOKEN) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
+def _person(value: object) -> str:
+    if isinstance(value, dict):
+        value = value.get("email") or value.get("address") or value.get("name") or ""
+    text = " ".join(str(value).split())
+    for ch in "`*#[]<>|":  # keep "_" so john_doe@x.com stays intact
+        text = text.replace(ch, " ")
+    return " ".join(text.split())
+
+
 def _people(value: object) -> str:
     """Every recipient, never truncated: hiding who receives something is unsafe."""
-    if isinstance(value, (list, tuple)):
-        value = ", ".join(str(v) for v in value if v)
-    return _clip(value, limit=10_000) if value else "someone"
+    items = value if isinstance(value, (list, tuple)) else [value]
+    names = [p for p in (_person(v) for v in items if v) if p]
+    return ", ".join(names) if names else "someone"
+
+
+def _recipients(tool_input: dict, key: str) -> list:
+    """Non-blank recipients under `key` (any case), top level or one dict level down."""
+    found: list = []
+
+    def take(d: dict) -> None:
+        for k, v in d.items():
+            if str(k).lower() == key and v:
+                for item in v if isinstance(v, (list, tuple)) else [v]:
+                    if _person(item):
+                        found.append(item)
+
+    take(tool_input)
+    for v in tool_input.values():
+        if isinstance(v, dict):
+            take(v)
+    return found
 
 
 def _join_clauses(clauses: list[str]) -> str:
     if len(clauses) <= 1:
         return "".join(clauses)
+    if len(clauses) == 2:
+        return f"{clauses[0]} and {clauses[1]}"
     return ", ".join(clauses[:-1]) + ", and " + clauses[-1]
 
 
 def _copy_clauses(tool_input: dict) -> list[str]:
     clauses = []
-    if tool_input.get("cc"):
-        clauses.append(f"copying {_people(tool_input['cc'])}")
-    if tool_input.get("bcc"):
-        clauses.append(f"blind copying {_people(tool_input['bcc'])}")
+    if cc := _recipients(tool_input, "cc"):
+        clauses.append(f"copying {_people(cc)}")
+    if bcc := _recipients(tool_input, "bcc"):
+        clauses.append(f"blind copying {_people(bcc)}")
     return clauses
 
 
@@ -210,7 +249,7 @@ def _count_attendees(value: object) -> int:
 def _attendee_tail(tool_input: dict) -> str:
     count = _count_attendees(tool_input)
     if count:
-        return f" with {count} attendees"
+        return f" with {count} attendee{'' if count == 1 else 's'}"
     return " with attendees" if _has_attendees(tool_input) else ""
 
 
@@ -238,22 +277,23 @@ def _describe_gmail(name: str, tool_input: dict) -> str:
     if norm.endswith("reply"):
         base = "Reply all to the" if tool_input.get("replyAll") else "Reply to the"
         clauses = []
-        if tool_input.get("to"):
-            clauses.append(f"sending to {_people(tool_input['to'])}")
+        if to := _recipients(tool_input, "to"):
+            clauses.append(f"sending to {_people(to)}")
         clauses += _copy_clauses(tool_input)
         if not clauses:
             return f"{base} email thread?"
         return f"{base} thread, {_join_clauses(clauses)}?"
     if norm.endswith("forward"):
         clauses = _copy_clauses(tool_input)
-        head = f"Forward the email to {_people(tool_input.get('to'))}"
-        return f"{head}, {_join_clauses(clauses)}?" if clauses else f"{head}?"
+        head = f"Forward the email to {_people(_recipients(tool_input, 'to'))}"
+        # The "to" head is the first list item, so cc + bcc keep the serial comma.
+        return f"{head}, {', and '.join(clauses)}?" if clauses else f"{head}?"
     verb = "Reply all" if tool_input.get("replyAll") else "Send an email"
-    text = f"{verb} to {_people(tool_input.get('to'))}"
-    if tool_input.get("cc"):
-        text += f", copying {_people(tool_input['cc'])}"
-    if tool_input.get("bcc"):
-        text += f", and blind copy to {_people(tool_input['bcc'])}"
+    text = f"{verb} to {_people(_recipients(tool_input, 'to'))}"
+    if cc := _recipients(tool_input, "cc"):
+        text += f", copying {_people(cc)}"
+    if bcc := _recipients(tool_input, "bcc"):
+        text += f", and blind copy to {_people(bcc)}"
     return f"{text} with subject {_clip(tool_input.get('subject') or 'no subject')}?"
 
 
@@ -265,6 +305,25 @@ def _describe_share(tool_input: dict) -> str:
     role = tool_input.get("role")
     tail = f" as {_clip(role)}" if role else ""
     return f"Share {_clip(file_id)} with {_people(who)}{tail}?"
+
+
+_TITLE_KEYS = ("summary", "title", "eventSummary")
+
+
+def _describe_notion_calendar(norm: str, tool_input: dict) -> str:
+    verb = "Create" if "create" in norm else "Cancel" if "cancel" in norm else "Change"
+    items = tool_input.get("events") or tool_input.get("updates")
+    if isinstance(items, (list, tuple)) and len(items) > 1:
+        n = len(items)
+        titles = [_find_key(item, _TITLE_KEYS) for item in items]
+        if all(titles):
+            parts = [f"{_clip(t)}{_attendee_tail(item)}" for t, item in zip(titles, items)]
+            return f"{verb} {n} Notion calendar events: {_join_clauses(parts)}?"
+        some = ", some with attendees" if _has_attendees(items) else ""
+        return f"{verb} {n} Notion calendar events{some}?"
+    title = _find_key(tool_input, _TITLE_KEYS)
+    what = f"the Notion calendar event {_clip(title)}" if title else "a Notion calendar event"
+    return f"{verb} {what}{_attendee_tail(tool_input)}?"
 
 
 def describe_action(name: str, tool_input: dict) -> str:
@@ -284,11 +343,8 @@ def describe_action(name: str, tool_input: dict) -> str:
         if "share" in norm:
             return _describe_share(tool_input)
         if "notion" in norm and "calendar" in norm and "event" in norm:
-            verb = "Create" if "create" in norm else "Cancel" if "cancel" in norm else "Change"
-            title = _find_key(tool_input, ("summary", "title"))
-            what = f"the Notion calendar event {_clip(title)}" if title else "a Notion calendar event"
-            return f"{verb} {what}{_attendee_tail(tool_input)}?"
+            return _describe_notion_calendar(norm, tool_input)
         if "create_event" in norm or "update_event" in norm or "respond_to_event" in norm:
-            title = _find_key(tool_input, ("summary", "title")) or "an event"
+            title = _find_key(tool_input, _TITLE_KEYS) or "an event"
             return f"{_short_name(name).capitalize()} {_clip(title)}{_attendee_tail(tool_input)}?"
     return f"Use {_short_name(name)}?"
