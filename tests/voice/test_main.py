@@ -20,22 +20,22 @@ def test_flags():
     assert args.no_room and args.check
 
 
-async def test_close_frames_stops_the_mic_iterator():
-    from types import SimpleNamespace
+def test_config_paths_fall_back_to_the_repo_root(tmp_path, monkeypatch):
+    from jarvis.voice.main import REPO_ROOT, resolve_config_path
 
-    from jarvis.voice.main import close_frames
+    monkeypatch.chdir(tmp_path)  # a manual run from outside the repo
+    example = resolve_config_path(Path("config.voice.example.yaml"))
+    assert example == REPO_ROOT / "config.voice.example.yaml"
+    assert example.exists()
 
-    closed = []
 
-    async def frames():
-        try:
-            while True:
-                yield 0
-        finally:
-            closed.append(True)
+def test_config_paths_prefer_the_working_directory(tmp_path, monkeypatch):
+    from jarvis.voice.main import resolve_config_path
 
-    it = frames()
-    await it.__anext__()
-    await close_frames(SimpleNamespace(_frames=it))
-    await close_frames(SimpleNamespace(_frames=None))
-    assert closed == [True]
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.voice.example.yaml").write_text("vault: x\n")
+    assert resolve_config_path(Path("config.voice.example.yaml")) == Path(
+        "config.voice.example.yaml")
+    # Absolute paths and paths found nowhere are left alone.
+    assert resolve_config_path(tmp_path / "nope.yaml") == tmp_path / "nope.yaml"
+    assert resolve_config_path(Path("missing.yaml")) == Path("missing.yaml")

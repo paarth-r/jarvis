@@ -14,6 +14,18 @@ from jarvis.voice.config import VoiceConfig, load_config
 
 DEFAULT_CONFIG = Path("config.voice.example.yaml")
 DEFAULT_LOCAL = Path("config.voice.local.yaml")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_config_path(path: Path) -> Path:
+    """A relative config path missing from the cwd falls back to the repo root.
+
+    Lets a manual run from another directory find the repo's config files.
+    """
+    if path.is_absolute() or path.exists():
+        return path
+    candidate = REPO_ROOT / path
+    return candidate if candidate.exists() else path
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +73,8 @@ def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
     wake = WakeWord(cfg.wake_models_dir, cfg.wake_threshold)
     print(f"[voice] wake words: {', '.join(wake.names)}", file=sys.stderr, flush=True)
     recorder = UtteranceRecorder(SileroVAD(), SmartTurn(cfg.smart_turn_model),
-                                 hard_silence_s=cfg.hard_silence_s)
+                                 hard_silence_s=cfg.hard_silence_s,
+                                 max_utterance_s=cfg.max_utterance_s)
     stt = WhisperSTT(cfg.stt_model, load_vocab_prompt(cfg.vocab_file))
     tts = KokoroTTS(cfg.kokoro_model, cfg.kokoro_voices, cfg.tts_voice)
     extra_mcp = None if not room else {"room": build_room_server(cfg.room_api_url)}
@@ -82,13 +95,6 @@ def warm_stt(stt: object) -> None:
     stt.transcribe(np.zeros(16000, dtype=np.int16))  # type: ignore[attr-defined]
 
 
-async def close_frames(loop: object) -> None:
-    """Close the loop's shared mic iterator so the input stream stops."""
-    frames = getattr(loop, "_frames", None)
-    if frames is not None:
-        await frames.aclose()
-
-
 async def run(cfg: VoiceConfig, room: bool) -> None:
     from jarvis.voice.loop import VoiceLoop
 
@@ -104,7 +110,7 @@ async def run(cfg: VoiceConfig, room: bool) -> None:
         await loop.run()
     finally:
         d.player.stop()  # type: ignore[attr-defined]
-        await close_frames(loop)
+        await loop.aclose()
         await d.brain.close()  # type: ignore[attr-defined]
 
 
@@ -129,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr,
                         format="[voice] %(name)s %(levelname)s %(message)s")
     logging.getLogger("jarvis").setLevel(logging.INFO)
-    cfg = load_config(args.config, args.local)
+    cfg = load_config(resolve_config_path(args.config), resolve_config_path(args.local))
     room = not args.no_room
     try:
         if args.check:
