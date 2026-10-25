@@ -11,6 +11,9 @@ self_chat_id: null
 tts_voice: bm_daniel
 # How the assistant addresses you in replies; empty string for no form of address.
 address_as: sir
+# Claude Code permission mode. In "auto" its classifier vets tool calls and the
+# voice only asks before reaching other people or deleting; "default" asks more.
+permission_mode: auto
 kokoro_model: models/kokoro/kokoro-v1.0.onnx
 kokoro_voices: models/kokoro/voices-v1.0.bin
 smart_turn_model: models/smart_turn/smart-turn-v3.2-cpu.onnx

@@ -20,7 +20,7 @@ import numpy as np
 
 from jarvis.voice.audio import tone
 from jarvis.voice.brain import BrainTimeout
-from jarvis.voice.permissions import is_affirmative
+from jarvis.voice.intent import judge_approval
 from jarvis.voice.speech import SentenceSplitter, to_speakable
 from jarvis.voice.stt import strip_wake_phrase
 
@@ -30,6 +30,18 @@ MUTE_TAIL_S = 0.3
 NEW_CONVERSATION = "new conversation"
 # Said on its own, any of these drops the conversation without asking Claude.
 CANCEL_PHRASES = {"nevermind", "never mind", "cancel", "stop", "forget it", "thats all"}
+# Short utterances containing one of these are a cancel too ("ah nevermind then").
+CANCEL_WORDS = ("nevermind", "never mind", "forget it", "forget about it", "cancel that")
+CANCEL_MAX_WORDS = 6
+# Claude is told to answer a vaguer brush-off with just "Okay."; that ends it too.
+DISMISSED_REPLIES = {"okay", "okay sir", "ok", "ok sir"}
+
+
+def _is_cancel(text: str) -> bool:
+    norm = _normalize(text)
+    if norm in CANCEL_PHRASES:
+        return True
+    return len(norm.split()) <= CANCEL_MAX_WORDS and any(w in norm for w in CANCEL_WORDS)
 
 # What the conversation does after an utterance.
 FOLLOWUP = "followup"  # answered: open the follow-up window
@@ -43,7 +55,7 @@ def _normalize(text: str) -> str:
 
 class VoiceLoop:
     def __init__(self, mic: Any, player: Any, wake: Any, recorder: Any, stt: Any,
-                 brain: Any, tts: Any, log: Any, cfg: Any) -> None:
+                 brain: Any, tts: Any, log: Any, cfg: Any, judge: Any = None) -> None:
         self.mic = mic
         self.player = player
         self.wake = wake
@@ -53,6 +65,7 @@ class VoiceLoop:
         self.tts = tts
         self.log = log
         self.cfg = cfg
+        self.judge = judge or judge_approval  # (question, answer) -> approved?
         self.state = "IDLE"
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._audio_lock = asyncio.Lock()
@@ -119,7 +132,7 @@ class VoiceLoop:
         text = strip_wake_phrase(transcript) if transcript else ""
         if not text:
             return WAKE_ONLY if transcript else IDLE
-        if _normalize(text) in CANCEL_PHRASES:
+        if _is_cancel(text):
             await self._say("Okay.")
             self._log_turn(text, "Okay.")
             return IDLE
@@ -137,6 +150,8 @@ class VoiceLoop:
                 await self._say("Okay, fresh start.")
             else:
                 await self._answer(text)
+                if _normalize(" ".join(self._said)) in DISMISSED_REPLIES:
+                    outcome = IDLE  # Claude read it as a brush-off: end the conversation
         except Exception as exc:
             outcome = IDLE
             await self._fail(exc)
@@ -186,7 +201,7 @@ class VoiceLoop:
     # -- confirmation (called by the brain's permission callback) ----------
 
     async def confirm(self, question: str) -> bool | None:
-        """Ask a yes/no question aloud. Only a clean affirmative proceeds.
+        """Ask a yes/no question aloud; the answer's intent decides (see intent.py).
 
         Returns None when nobody was asked (no turn is active), so the brain
         does not report it as a spoken decline.
@@ -211,7 +226,7 @@ class VoiceLoop:
                     transcript = await asyncio.to_thread(self.stt.transcribe, audio)
                     self._archive(audio, transcript)
                 answer = strip_wake_phrase(transcript) if transcript else None
-                approved = is_affirmative(answer)
+                approved = await self.judge(question, answer)
                 if not approved:
                     await self._say_unlocked("Cancelled.")
                 return approved

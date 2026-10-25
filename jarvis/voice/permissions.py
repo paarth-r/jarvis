@@ -82,7 +82,34 @@ def _tool_part(norm: str) -> str:
     return norm.split("__", 2)[-1]
 
 
+# In auto mode Claude Code's own classifier vets every tool call, so the voice
+# gate keeps only actions that reach other people or can't be undone.
+OUTWARD_WORDS = (
+    "send", "reply", "forward", "share", "invite", "respond", "delete", "trash",
+    "comment", "spawn", "post", "publish", "upload",
+)
+
+
 def classify_tool(
+    name: str,
+    tool_input: dict,
+    vault: Path,
+    self_chat_id: str | None = None,
+    auto: bool = False,
+) -> Literal["allow", "confirm"]:
+    verdict = _classify_strict(name, tool_input, vault, self_chat_id)
+    if not auto or verdict == "allow" or not name.startswith("mcp__"):
+        return "allow" if auto else verdict
+    norm = name.lower().replace("-", "_")
+    tokens = [t for t in norm.split("__", 2)[-1].split("_") if t]
+    if any(t.startswith(w) for t in tokens for w in OUTWARD_WORDS):
+        return "confirm"
+    if "update_event" in norm or _has_attendees(tool_input):
+        return "confirm"
+    return "allow"
+
+
+def _classify_strict(
     name: str,
     tool_input: dict,
     vault: Path,

@@ -384,3 +384,27 @@ def test_whitespace_only_titles_count_as_missing():
     )
     cal = "mcp__claude_ai_Google_Calendar__create_event"
     assert describe_action(cal, {"summary": " \n "}) == "Create event an event?"
+
+
+@pytest.mark.parametrize(
+    ("name", "tool_input", "expected"),
+    [
+        ("Bash", {"command": "rm -rf build"}, "allow"),
+        ("Write", {"file_path": "/etc/hosts"}, "allow"),
+        ("Agent", {}, "allow"),
+        ("mcp__claude-in-chrome__computer", {}, "allow"),
+        ("mcp__notion__notion-update-page", {}, "allow"),
+        ("mcp__claude_ai_Gmail__send_message", {"to": ["a@x.com"]}, "confirm"),
+        ("mcp__claude_ai_Gmail__reply", {}, "confirm"),
+        ("mcp__claude_ai_Google_Drive__share_file", {}, "confirm"),
+        ("mcp__claude_ai_Google_Drive__trash_file", {}, "confirm"),
+        ("mcp__claude_ai_Google_Calendar__create_event", {"summary": "Tennis"}, "allow"),
+        ("mcp__claude_ai_Google_Calendar__create_event", {"attendeeEmails": ["a@x.com"]}, "confirm"),
+        ("mcp__claude_ai_Google_Calendar__update_event", {"summary": "Tennis"}, "confirm"),
+        ("mcp__plugin_imessage_imessage__reply", {"chat_id": "other"}, "confirm"),
+        ("mcp__plugin_imessage_imessage__reply", {"chat_id": "me"}, "allow"),
+        ("mcp__room__set_state", {}, "allow"),
+    ],
+)
+def test_auto_mode_only_gates_outward_actions(tmp_path, name, tool_input, expected):
+    assert classify_tool(name, tool_input, tmp_path, "me", auto=True) == expected

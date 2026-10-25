@@ -30,6 +30,7 @@ from jarvis.voice.config import VoiceConfig
 
 
 def make_cfg(vault: Path, **kw) -> VoiceConfig:
+    kw.setdefault("permission_mode", "default")  # strict gate unless a test opts in
     return VoiceConfig(
         vault=vault,
         kokoro_model=Path("k.onnx"),
@@ -511,4 +512,24 @@ async def test_live_hook_beats_a_settings_allow_rule(tmp_path, flag_dir):
                              "echo jarvis-hook-check. Then reply with one word.")
     finally:
         await brain.close()
-    assert any("jarvis-hook-check" in q for q in asked), asked
+    # The command is never read aloud; the hook asked with Claude's summary.
+    assert any(q.startswith("I want to") and q.endswith("Approve?") for q in asked), asked
+
+
+async def test_auto_mode_passes_through_and_skips_shell_approval(tmp_path, flag_dir):
+    asked: list[str] = []
+
+    async def approve(prompt: str) -> bool:
+        asked.append(prompt)
+        return True
+
+    brain = make_brain(tmp_path, flag_dir, confirm=approve, permission_mode="auto")
+    await brain.start()
+    opts = FakeClient.instances[0].options
+    assert opts.permission_mode == "auto"
+    hook = pre_tool_use_hook(opts)
+    out = await hook(hook_input("Bash", {"command": "ls", "description": "List files"}), "t1", {"signal": None})
+    assert decision(out) is None or decision(out)[0] != "deny"
+    assert asked == []
+    out = await hook(hook_input("mcp__claude_ai_Gmail__send_message", {"to": ["a@x.com"]}), "t2", {"signal": None})
+    assert decision(out)[0] == "allow" and len(asked) == 1

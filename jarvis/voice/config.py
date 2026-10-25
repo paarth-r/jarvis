@@ -24,6 +24,7 @@ class VoiceConfig:
     self_chat_id: str | None = None
     tts_voice: str = "bm_daniel"
     address_as: str = "sir"
+    permission_mode: str = "auto"
     kokoro_model: Path
     kokoro_voices: Path
     smart_turn_model: Path

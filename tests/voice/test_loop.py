@@ -10,6 +10,7 @@ import pytest
 
 from jarvis.voice.audio import tone
 from jarvis.voice.brain import BrainTimeout
+from jarvis.voice.intent import judge_approval
 from jarvis.voice.loop import VoiceLoop
 
 TONES = {kind: tone(kind)[0] for kind in ("wake", "working", "error")}
@@ -141,7 +142,22 @@ CFG = SimpleNamespace(followup_s=8.0, working_tone_after_s=3.0)
 AUDIO = np.ones(1600, dtype=np.int16)
 
 
-def make(utterances, transcripts, brain, wakes=1, cfg=CFG):
+def fake_judge(verdict="DENY"):
+    """judge_approval with the Claude call replaced by a fixed verdict."""
+    calls: list[str] = []
+
+    async def ask(question, answer):
+        calls.append(answer)
+        return verdict
+
+    async def judge(question, answer):
+        return await judge_approval(question, answer, ask=ask)
+
+    judge.calls = calls
+    return judge
+
+
+def make(utterances, transcripts, brain, wakes=1, cfg=CFG, judge=None):
     mic = FakeMic(wakes)
     player = FakePlayer(mic)
     deps = SimpleNamespace(
@@ -149,7 +165,7 @@ def make(utterances, transcripts, brain, wakes=1, cfg=CFG):
         stt=FakeSTT(transcripts), brain=brain, tts=FakeTTS(), log=FakeLog(),
     )
     loop = VoiceLoop(deps.mic, deps.player, deps.wake, deps.recorder, deps.stt,
-                     deps.brain, deps.tts, deps.log, cfg)
+                     deps.brain, deps.tts, deps.log, cfg, judge=judge or fake_judge())
     return loop, deps
 
 
@@ -511,3 +527,37 @@ async def test_aclose_closes_the_shared_frames_iterator():
     await loop.aclose()
     await loop.aclose()  # idempotent
     assert closed == [True]
+
+
+async def test_confirm_lets_claude_judge_a_loose_yes():
+    judge = fake_judge("APPROVE")
+    brain = ConfirmingBrain()
+    loop, d = make([AUDIO, AUDIO], ["email sam", "yea approoved"], brain, judge=judge)
+    brain.confirm = loop.confirm
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert judge.calls == ["yea approoved"]
+    assert d.player.played == ["tone:wake", "Send it?", "Sent."]
+
+
+async def test_loose_nevermind_is_a_fast_cancel():
+    brain = FakeBrain([["unused"]])
+    loop, d = make([AUDIO], ["ah nevermind then"], brain)
+    await loop.run()
+    assert brain.asked == []
+    assert d.player.played == ["tone:wake", "Okay."]
+
+
+async def test_long_sentence_mentioning_nevermind_goes_to_claude():
+    brain = FakeBrain([["Sure."]])
+    text = "what does the word nevermind mean in that old song lyric"
+    loop, d = make([AUDIO], [text], brain)
+    await loop.run()
+    assert brain.asked == [text]
+
+
+async def test_claude_reading_a_brush_off_ends_the_conversation():
+    brain = FakeBrain([["Okay."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO], ["eh actually it's fine", "this should not be heard"], brain)
+    await loop.run()
+    assert brain.asked == ["eh actually it's fine"]
+    assert d.recorder.timeouts == [6]  # no follow-up window opened

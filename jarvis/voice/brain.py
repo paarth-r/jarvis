@@ -48,7 +48,9 @@ VOICE_PROMPT = (
     "someone in the room: usually one or two sentences, answer first, no preamble, "
     "no recap of the question, no closing offers of more help. Go longer only when "
     "they ask for detail. Don't narrate your work; at most one brief line such as "
-    "'One moment, sir' before a slow lookup, then just the answer. No "
+    "'One moment, sir' before a slow lookup, then just the answer. If they are "
+    "backing out or brushing you off (nevermind, forget it, actually no, it's "
+    "fine), reply with only 'Okay.' and do nothing else. No "
     "markdown, lists, tables, code or URLs. Say numbers and times the way a person "
     "would. If the answer is long (a plan, a diff, a table, more than about four "
     "sentences), write it to the wiki or send it to the user's phone over iMessage, "
@@ -233,7 +235,8 @@ class Brain:
     # -- permissions -------------------------------------------------------
 
     def _needs_confirm(self, name: str, tool_input: dict) -> bool:
-        verdict = classify_tool(name, tool_input, self.cfg.vault, self.cfg.self_chat_id)
+        verdict = classify_tool(name, tool_input, self.cfg.vault, self.cfg.self_chat_id,
+                                auto=self.cfg.permission_mode == "auto")
         return verdict != "allow"
 
     async def _confirm_action(self, name: str, tool_input: dict) -> str | None:
@@ -305,6 +308,7 @@ class Brain:
             system_prompt={"type": "preset", "preset": "claude_code", "append": voice_prompt(self.cfg.address_as)},
             mcp_servers=self._extra_mcp or {},
             include_partial_messages=True,
+            permission_mode=self.cfg.permission_mode,  # type: ignore[arg-type]
             can_use_tool=self._can_use_tool,
             hooks={
                 "PreToolUse": [

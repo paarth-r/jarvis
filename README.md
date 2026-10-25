@@ -184,18 +184,19 @@ Change `tts_voice` (any Kokoro voice id; `b*` voices get British pronunciation) 
 
 ### Confirmation rules
 
-- Reading (files, search, list/get/read MCP tools) and room control run without asking.
-- Also without asking: creating a calendar event with no attendees (it touches only
-  your calendar) and saving a Gmail draft (nothing is sent).
-- Writes inside the vault run without asking; writes outside it, shell commands, and
-  any MCP tool that sends, replies, shares, deletes, creates or updates something are
-  read back aloud and need a spoken yes.
-- Only a clean affirmative ("yes", "yeah", "do it", "send it", "go ahead", ...)
-  proceeds. Silence, "no", or anything unclear cancels, and it says so. No retries.
-- Actions too long to read back (long shell commands, huge recipient lists) are
-  refused outright.
+- `permission_mode: auto` (the default) turns on Claude Code's auto mode: its own
+  classifier vets every tool call, so shell commands, file edits and lookups just run.
+- The voice still asks before anything that reaches other people or can't be undone:
+  sending, replying, forwarding or sharing, calendar invites with attendees or event
+  updates, comments, and deletes. Texts to your own chat and room control never ask.
+- It reads back a short request ("I want to email Sam about lunch. Approve?").
+  Obvious answers ("yes", "no") decide instantly; anything looser ("yea approved",
+  "eh go for it") is judged by Claude Haiku. Unclear, silence or errors cancel.
+- Requests too long to read back (huge recipient lists) are refused outright.
 - The rules hold even for tools your Claude Code settings allowlist: they are
   enforced in a PreToolUse hook, which runs before settings allow rules.
+- `permission_mode: default` restores the strict gate (shell commands, writes
+  outside the vault and most MCP writes ask too).
 
 ### Privacy
 
