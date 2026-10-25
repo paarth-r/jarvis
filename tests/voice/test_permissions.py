@@ -141,7 +141,7 @@ def test_round2_readbacks():
     assert c.endswith("with 1 attendee?")
     assert describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1"}) == "Send your saved draft?"
     b = describe_action("Bash", {"command": "echo a\nrm -rf x", "description": "Remove the x folder"})
-    assert b == "I'd like to remove the x folder. Okay?"
+    assert b == "I want to remove the x folder. Approve?"
     s = describe_action(
         "mcp__claude_ai_Google_Drive__share_file",
         {"fileId": "f1", "emailAddress": "z@x.com", "chatSpaceId": "sp", "role": "writer"},
@@ -191,7 +191,7 @@ def test_imessage_reply_without_self_chat_confirms(vault):
 
 
 def test_affirmative():
-    yes = ["Yes.", "yeah", "YEP!", "yes   please", "send it", "Go ahead.", "do it", "confirm", "Yes, send it!"]
+    yes = ["Yes.", "yeah", "YEP!", "yes   please", "send it", "Go ahead.", "do it", "confirm", "Yes, send it!", "Approve.", "approved", "Okay.", "sure"]
     no = ["yes no wait", "", None, "no", "yes but not that one", "   ", "maybe"]
     for t in yes:
         assert is_affirmative(t), t
@@ -210,8 +210,8 @@ def test_describe_gmail():
 def test_describe_bash_speaks_the_request_not_the_command():
     cmd = "cat ~/a* | grep x > o.txt && rm -rf ~/old_logs"
     out = describe_action("Bash", {"command": cmd, "description": "Delete the old logs folder."})
-    assert out == "I'd like to delete the old logs folder. Okay?"
-    assert describe_action("Bash", {"command": cmd}) == "I'd like to run a shell command. Okay?"
+    assert out == "I want to delete the old logs folder. Approve?"
+    assert describe_action("Bash", {"command": cmd}) == "I want to run a shell command. Approve?"
     for part in ("rm", "grep", "~", "|", "old_logs"):
         assert part not in describe_action("Bash", {"command": cmd})
 

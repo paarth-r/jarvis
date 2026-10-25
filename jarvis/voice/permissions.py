@@ -35,7 +35,8 @@ MUTATING_WORDS = (
 CONJUNCTIONS = {"and", "or"}
 AFFIRMATIVES = {
     "yes", "yeah", "yep", "yes please", "do it", "send it", "go ahead",
-    "confirm", "yes send it", "yes do it",
+    "confirm", "yes send it", "yes do it", "approve", "approved", "i approve",
+    "yes approve", "okay", "ok", "sure", "go for it",
 }
 MAX_SPOKEN = 80
 MAX_BASH_CONFIRM = 200
@@ -162,7 +163,7 @@ def _bash_description(tool_input: dict) -> str:
 
     The command itself is never read aloud; the request is phrased from this.
     """
-    text = _clip(tool_input.get("description") or "", 120).strip().rstrip(".")
+    text = _clip(tool_input.get("description") or "", MAX_SPOKEN).strip().rstrip(".")
     return text[:1].lower() + text[1:] if text else ""
 
 
@@ -334,7 +335,7 @@ def _describe_notion_calendar(norm: str, tool_input: dict) -> str:
 def describe_action(name: str, tool_input: dict) -> str:
     if name == "Bash":
         desc = _bash_description(tool_input)
-        return f"I'd like to {desc}. Okay?" if desc else "I'd like to run a shell command. Okay?"
+        return f"I want to {desc}. Approve?" if desc else "I want to run a shell command. Approve?"
     if name in PATH_CHECKED_WRITERS:
         path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
         verb = "Write" if name == "Write" else "Edit"

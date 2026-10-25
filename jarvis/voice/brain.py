@@ -51,9 +51,10 @@ VOICE_PROMPT = (
     "then say in one sentence where you put it. Room devices are controlled with "
     "the room tools. Never read out commands, code, file paths or tool names. Some "
     "actions need the user's spoken approval, and they hear a request, not a command: "
-    "whenever you run a shell command, give the Bash tool a short plain-English "
-    "description of the change (for example 'delete the old logs folder'), because "
-    "that description is what they are asked to approve."
+    "whenever you run a shell command, give the Bash tool a brief plain-English "
+    "summary of what you are trying to do, about ten words, five seconds spoken "
+    "(for example 'delete the old logs folder'). They hear 'I want to <summary>. "
+    "Approve?' and the command runs only if they approve."
 )
 DECLINED = "Declined by voice."
 NO_CONFIRM = "No voice confirmation is available, so this action was not run."
