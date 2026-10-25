@@ -25,16 +25,21 @@ if [ "$OS" = "Linux" ]; then
     uv pip install -p .venv-voice faster-whisper
 fi
 
-if [ -x scripts/fetch_voice_models.sh ]; then
-    scripts/fetch_voice_models.sh
-elif [ -f scripts/fetch_voice_models.sh ]; then
-    bash scripts/fetch_voice_models.sh
-else
-    echo "scripts/fetch_voice_models.sh not found; fetch models manually (see docs/voice/DEPLOY.md)" >&2
+if [ ! -f scripts/fetch_voice_models.sh ]; then
+    echo "scripts/fetch_voice_models.sh not found; cannot fetch models" >&2
+    exit 1
 fi
+bash scripts/fetch_voice_models.sh
+for f in models/kokoro/kokoro-v1.0.onnx models/kokoro/voices-v1.0.bin models/smart_turn/smart-turn-v3.2-cpu.onnx; do
+    if [ ! -f "$f" ]; then
+        echo "Missing model file after fetch: $f" >&2
+        exit 1
+    fi
+done
 
 if [ ! -f config.voice.local.yaml ]; then
-    echo "Create config.voice.local.yaml (vault path, vocab_file) before starting the service." >&2
+    echo "config.voice.local.yaml not found. Copy config.voice.example.yaml to config.voice.local.yaml, set vault and vocab_file, then re-run this script. Service not installed." >&2
+    exit 1
 fi
 
 if [ "$OS" = "Darwin" ]; then

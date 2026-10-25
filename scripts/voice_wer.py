@@ -17,6 +17,11 @@ def main(argv: list[str] | None = None) -> int:
     except FileNotFoundError:
         print(f"no utterances.jsonl in {data_dir.expanduser()}", file=sys.stderr)
         return 1
+    if result.skipped:
+        print(f"skipped {result.skipped} malformed line(s)")
+    if result.count == 0:
+        print("no corrected rows yet")
+        return 0
     print(f"WER: {result.wer:.3f} over {result.count} corrected utterances")
     print("Most-missed reference words (candidates for the vocab file):")
     for word, n in result.top_missed:

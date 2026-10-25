@@ -61,17 +61,25 @@ class ArchiveScore:
     wer: float
     count: int
     top_missed: list[tuple[str, int]]
+    skipped: int = 0
 
 
 def score_archive(data_dir: Path, top: int = 10) -> ArchiveScore:
     """Score every row with `corrected` set; a null transcript is all deletions."""
     path = Path(data_dir).expanduser() / "utterances.jsonl"
-    errors = words = count = 0
+    errors = words = count = skipped = 0
     missed: Counter[str] = Counter()
     for line in path.read_text().splitlines():
         if not line.strip():
             continue
-        row = json.loads(line)
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            skipped += 1
+            continue
+        if not isinstance(row, dict):
+            skipped += 1
+            continue
         if not row.get("corrected"):
             continue
         ref, hyp = _words(row["corrected"]), _words(row.get("transcript"))
@@ -82,4 +90,4 @@ def score_archive(data_dir: Path, top: int = 10) -> ArchiveScore:
         words += len(ref)
         count += 1
         missed.update(miss)
-    return ArchiveScore(errors / words if words else 0.0, count, missed.most_common(top))
+    return ArchiveScore(errors / words if words else 0.0, count, missed.most_common(top), skipped)
