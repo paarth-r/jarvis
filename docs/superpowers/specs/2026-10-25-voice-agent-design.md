@@ -237,7 +237,10 @@ answer itself.
    servers `connected`, 154 tools, all 57 skills (
    model claude-opus-5-5. The prior-art
    finding doesn't apply here. Still confirm the same through the Agent SDK in
-   the first build task.
+   the first build task. **Confirmed via the Agent SDK (0.2.174) the same
+   day:** connectors report `pending` at init and `connected` ~10 s in, so the
+   voice daemon keeps a warm SDK session open from boot rather than starting
+   one on wake.
 2. **Wake-word quality for "hey claude"** once trained; false accepts from
    music/YouTube in the room.
 3. **macOS mic permission for a background service.** The service must run as
