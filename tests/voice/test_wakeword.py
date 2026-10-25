@@ -100,21 +100,83 @@ async def test_mic_mute_drains_queued_frames() -> None:
     assert mic._queue.qsize() == 0
 
 
-async def test_player_cancel_stops_audio(monkeypatch: pytest.MonkeyPatch) -> None:
-    import asyncio
-    import threading
+class FakeStream:
+    """Stands in for sd.OutputStream; the test drives the callback by hand."""
 
+    instances: list = []
+
+    def __init__(self, samplerate, channels, dtype, device, callback):
+        self.samplerate, self.callback, self.latency = samplerate, callback, 0.0
+        self.started = self.closed = False
+        FakeStream.instances.append(self)
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+    def pull(self, frames):
+        out = np.ones((frames, 1), np.float32)
+        self.callback(out, frames, None, None)
+        return out[:, 0]
+
+
+async def _wait_until(cond):
+    import asyncio
+    for _ in range(500):
+        if cond():
+            return
+        await asyncio.sleep(0.002)
+    raise AssertionError("condition never became true")
+
+
+async def test_player_plays_whole_clip_then_silence() -> None:
+    import asyncio
     from jarvis.voice import audio
 
-    started, release, stopped = threading.Event(), threading.Event(), []
-    monkeypatch.setattr(audio.sd, "play", lambda *a, **k: started.set())
-    monkeypatch.setattr(audio.sd, "wait", lambda: release.wait(5))
-    monkeypatch.setattr(audio.sd, "stop", lambda: (stopped.append(1), release.set()))
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream)
+    clip = np.full(250, 16384, np.int16)  # 0.5 in float
+    task = asyncio.create_task(player.play(clip, 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    stream = FakeStream.instances[0]
+    first, second = stream.pull(200), stream.pull(200)
+    await asyncio.wait_for(task, 1)
+    assert np.allclose(first, 0.5) and np.allclose(second[:50], 0.5)
+    assert np.allclose(second[50:], 0.0)  # tail of the clip, then silence
+    assert stream.started and not stream.closed
 
-    task = asyncio.create_task(audio.Player().play(np.zeros(100, np.int16), 16000))
-    while not started.is_set():
-        await asyncio.sleep(0.01)
+
+async def test_player_reuses_one_stream_across_clips() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream)
+    for _ in range(3):
+        task = asyncio.create_task(player.play(np.zeros(10, np.float32), 24000))
+        await _wait_until(lambda: not player._drained.is_set())  # clip queued
+        FakeStream.instances[0].pull(64)
+        await asyncio.wait_for(task, 1)
+    assert len(FakeStream.instances) == 1
+    player.close()
+    assert FakeStream.instances[0].closed
+
+
+async def test_player_cancel_stops_audio() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream)
+    task = asyncio.create_task(player.play(np.ones(24000, np.float32), 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    FakeStream.instances[0].pull(100)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert stopped
+    assert np.allclose(FakeStream.instances[0].pull(100), 0.0)  # nothing left queued

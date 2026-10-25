@@ -119,7 +119,7 @@ async def run(cfg: VoiceConfig, room: bool) -> None:
         print("[voice] ready", file=sys.stderr, flush=True)
         await loop.run()
     finally:
-        d.player.stop()  # type: ignore[attr-defined]
+        d.player.close()  # type: ignore[attr-defined]
         await loop.aclose()
         await d.brain.close()  # type: ignore[attr-defined]
 

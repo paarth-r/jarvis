@@ -75,24 +75,71 @@ class MicStream:
 
 
 class Player:
-    """Plays samples without blocking the event loop."""
+    """Plays clips through one long-lived output stream, without blocking the loop.
 
-    def __init__(self, device: int | str | None = None) -> None:
+    Opening and closing a stream per clip drops whatever the output device is
+    still buffering (soundbars, AirPlay, Bluetooth), which clips the last word
+    of every sentence. The stream stays open and is fed from a buffer instead.
+    """
+
+    def __init__(self, device: int | str | None = None, stream_factory=None) -> None:
         self._device = device
+        self._factory = stream_factory or sd.OutputStream
+        self._stream = None
+        self._sr: int | None = None
+        self._lock = threading.Lock()
+        self._buf = np.zeros(0, np.float32)
+        self._pos = 0
+        self._drained = threading.Event()
+        self._drained.set()
+
+    def _callback(self, outdata, frames, time_info, status) -> None:  # PortAudio thread
+        with self._lock:
+            n = min(frames, len(self._buf) - self._pos)
+            outdata[:n, 0] = self._buf[self._pos:self._pos + n]
+            outdata[n:, 0] = 0.0
+            self._pos += n
+            if self._pos >= len(self._buf):
+                self._drained.set()
+
+    def _ensure_stream(self, sr: int) -> None:
+        if self._stream is not None and self._sr == sr:
+            return
+        self.close()
+        self._stream = self._factory(samplerate=sr, channels=1, dtype="float32",
+                                     device=self._device, callback=self._callback)
+        self._stream.start()
+        self._sr = sr
 
     async def play(self, samples: np.ndarray, sr: int) -> None:
-        def run() -> None:
-            sd.play(samples, sr, device=self._device)
-            sd.wait()
-
+        data = np.asarray(samples)
+        if data.dtype == np.int16:
+            data = data.astype(np.float32) / 32768.0
+        data = data.astype(np.float32).reshape(-1)
+        self._ensure_stream(sr)
+        with self._lock:
+            self._buf, self._pos = data, 0
+            self._drained.clear()
         try:
-            await asyncio.to_thread(run)
+            await asyncio.to_thread(self._drained.wait, len(data) / sr + 5.0)
+            # The device is still playing what it buffered; let it finish so the
+            # mic's mute window covers the whole clip.
+            await asyncio.sleep(float(getattr(self._stream, "latency", 0.0) or 0.0))
         except asyncio.CancelledError:
-            sd.stop()
+            self.stop()
             raise
 
     def stop(self) -> None:
-        sd.stop()
+        with self._lock:
+            self._pos = len(self._buf)
+            self._drained.set()
+
+    def close(self) -> None:
+        self.stop()
+        if self._stream is not None:
+            self._stream.stop()
+            self._stream.close()
+            self._stream = None
 
 
 def tone(kind: Literal["wake", "working", "error"]) -> tuple[np.ndarray, int]:
