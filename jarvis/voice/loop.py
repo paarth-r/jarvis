@@ -9,6 +9,7 @@ so the assistant never hears (or wakes on) its own voice.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import sys
 import traceback
@@ -151,9 +152,12 @@ class VoiceLoop:
 
     async def _answer(self, text: str) -> None:
         splitter = SentenceSplitter()
-        async for delta in self.brain.ask(text):
-            for sentence in splitter.feed(delta):
-                await self._say(sentence)
+        # aclosing: if speaking fails mid-stream, the brain's generator is closed
+        # now (recycling its client), not whenever it is garbage collected.
+        async with contextlib.aclosing(self.brain.ask(text)) as reply:
+            async for delta in reply:
+                for sentence in splitter.feed(delta):
+                    await self._say(sentence)
         for sentence in splitter.flush():
             await self._say(sentence)
 
@@ -172,8 +176,11 @@ class VoiceLoop:
 
     # -- confirmation (called by the brain's permission callback) ----------
 
-    async def confirm(self, question: str) -> bool:
+    async def confirm(self, question: str) -> bool | None:
         """Ask a yes/no question aloud. Only a clean affirmative proceeds.
+
+        Returns None when nobody was asked (no turn is active), so the brain
+        does not report it as a spoken decline.
 
         The SDK runs its permission callback in a detached task, so this can
         start while the turn is still speaking an earlier sentence: the audio
@@ -184,7 +191,7 @@ class VoiceLoop:
         if not self._turn_active:
             # A stray callback outside a turn must never drive the shared
             # frames iterator alongside the IDLE wake detector.
-            return False
+            return None
         await self._stop_working_tone()
         try:
             async with self._audio_lock:
@@ -203,6 +210,12 @@ class VoiceLoop:
             self.player.stop()
             raise
 
+    async def aclose(self) -> None:
+        """Close the shared mic frames iterator so the input stream stops."""
+        frames, self._frames = self._frames, None
+        if frames is not None:
+            await frames.aclose()  # type: ignore[attr-defined]
+
     # -- audio helpers -----------------------------------------------------
     # One lock serializes everything that touches the speaker or the shared
     # frames iterator: speaking, tones, recording, and a whole confirmation.
@@ -217,16 +230,8 @@ class VoiceLoop:
             return await self._record_unlocked(start_timeout_s)
 
     async def _record_unlocked(self, start_timeout_s: float) -> np.ndarray | None:
-        self._reset_vad()
+        self.recorder.reset()  # VAD state must not leak across utterances
         return await self.recorder.record(self._stream(), start_timeout_s)
-
-    def _reset_vad(self) -> None:
-        # UtteranceRecorder exposes no reset of its own; its VAD (SileroVAD)
-        # carries recurrent state that must not leak across utterances.
-        vad = getattr(self.recorder, "_vad", None)
-        reset = getattr(vad, "reset", None)
-        if callable(reset):
-            reset()
 
     async def _say(self, text: str) -> None:
         await self._stop_working_tone()

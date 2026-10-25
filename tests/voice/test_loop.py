@@ -69,21 +69,16 @@ class FakeWake:
         self.resets += 1
 
 
-class FakeVAD:
-    def __init__(self) -> None:
-        self.resets = 0
-
-    def reset(self) -> None:
-        self.resets += 1
-
-
 class FakeRecorder:
     """Returns scripted utterances; None once the script runs out."""
 
     def __init__(self, utterances) -> None:
         self.utterances = list(utterances)
         self.timeouts: list[float] = []
-        self._vad = FakeVAD()
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
 
     async def record(self, frames, start_timeout_s):
         self.timeouts.append(start_timeout_s)
@@ -167,7 +162,7 @@ async def test_wake_to_answer():
     assert d.log.archived == ["Hey Jarvis, what's due?"]
     assert d.wake.resets >= 1
     assert d.recorder.timeouts == [6, 8.0]  # LISTEN, then the follow-up window
-    assert d.recorder._vad.resets == 2  # VAD reset before every record()
+    assert d.recorder.resets == 2  # recorder reset before every record()
     assert brain.maybe_resets == 1
 
 
@@ -390,9 +385,10 @@ async def test_archive_failure_does_not_fail_turn():
     assert d.player.played == ["Sure."]
 
 
-async def test_confirm_outside_a_turn_returns_false_immediately():
+async def test_confirm_outside_a_turn_asks_nobody():
     loop, d = make([AUDIO], ["yes"], FakeBrain())
-    assert await loop.confirm("Send it?") is False
+    # None (not False): nobody was asked, so it must not read as a decline.
+    assert await loop.confirm("Send it?") is None
     assert d.player.played == []
     assert d.recorder.timeouts == []
 
@@ -439,3 +435,61 @@ async def test_timeout_after_a_spoken_sentence():
                                "Sorry, that took too long."]
     assert d.recorder.timeouts == [6]  # straight to IDLE, no follow-up window
     assert d.log.turns == [("long job", "First part. Sorry, that took too long.")]
+
+
+class ClosingBrain(FakeBrain):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    async def ask(self, text):
+        try:
+            yield "First sentence. "
+            yield "Second sentence."
+        finally:
+            self.closed = True  # the real brain recycles its client here
+
+
+class BrokenTTS(FakeTTS):
+    def synth(self, text):
+        raise RuntimeError("tts died")
+
+
+async def test_brain_stream_closed_when_speaking_fails():
+    brain = ClosingBrain()
+    loop, d = make([], [], brain)
+    loop.tts = BrokenTTS()
+    loop.stt = FakeSTT(["what's up"])
+    closed_at_error_tone = []
+    play = d.player.play
+
+    async def spy(samples, sr):
+        closed_at_error_tone.append(brain.closed)
+        await play(samples, sr)
+
+    d.player.play = spy
+    await loop.handle_turn(AUDIO)
+    # Closed deterministically when the turn failed, not later at GC time.
+    assert d.player.played[0] == "tone:error"
+    assert closed_at_error_tone[0] is True
+
+
+async def test_aclose_closes_the_shared_frames_iterator():
+    closed = []
+
+    class EndlessMic(FakeMic):
+        async def frames(self):
+            try:
+                while True:
+                    yield np.zeros(1280, dtype=np.int16)
+            finally:
+                closed.append(True)
+
+    loop, d = make([], [], FakeBrain())
+    loop.mic = EndlessMic()
+    await loop.aclose()  # never started: nothing to close
+    frames = loop._stream()
+    await frames.__anext__()
+    await loop.aclose()
+    await loop.aclose()  # idempotent
+    assert closed == [True]
