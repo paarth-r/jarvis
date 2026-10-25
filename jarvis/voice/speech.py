@@ -8,15 +8,22 @@ from typing import Protocol
 import numpy as np
 
 CODE_SPOKEN = "I put the code in the log."
-FENCE = "```"
+FENCES = ("```", "~~~")
 _ABBREVIATIONS = {"dr", "mr", "mrs", "ms", "prof", "st", "vs", "e.g", "i.e", "etc"}
 
-_FENCE_RE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_FENCE_RE = re.compile(r"(```|~~~).*?(?:\1|\Z)", re.DOTALL)
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
-_URL_RE = re.compile(r"https?://\S*[^\s.,;:!?)\]]")
+_URL_RE = re.compile(r"<?https?://[^\s<>]*[^\s<>.,;:!?)\]]>?")
 _INLINE_CODE_RE = re.compile(r"`([^`]*)`")
 _HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_QUOTE_RE = re.compile(r"^[ \t]*>+[ \t]?", re.MULTILINE)
+_RULE_RE = re.compile(r"^[ \t]*(?:[-*_][ \t]*){3,}$", re.MULTILINE)
+_TABLE_SEP_RE = re.compile(r"^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-*:?[ \t]*)+$\n?", re.MULTILINE)
+_TABLE_ROW_RE = re.compile(r"^[ \t]*\|(.*?)\|?[ \t]*$", re.MULTILINE)
+_STRIKE_RE = re.compile(r"~~(.+?)~~", re.DOTALL)
+_LEADING_HASH_RE = re.compile(r"^[ \t]*#+", re.MULTILINE)
+_STRAY_STAR_RE = re.compile(r"(?<=\d)\s?\*\s?(?=\d)|\*")
 _BULLET_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+", re.MULTILINE)
 _BOLD_RE = re.compile(r"(\*\*|__)(.+?)\1", re.DOTALL)
 _ITALIC_RE = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)\*(?![\w*])")
@@ -29,12 +36,23 @@ def to_speakable(text: str) -> str:
     text = _IMAGE_RE.sub(r"\1", text)
     text = _LINK_RE.sub(r"\1", text)
     text = _URL_RE.sub("a link", text)
+    text = _QUOTE_RE.sub("", text)
+    text = _RULE_RE.sub("", text)
+    text = _TABLE_SEP_RE.sub("", text)
+    text = _TABLE_ROW_RE.sub(
+        lambda m: ", ".join(c.strip() for c in m.group(1).split("|") if c.strip()), text
+    )
+    text = _STRIKE_RE.sub(r"\1", text)
     text = _INLINE_CODE_RE.sub(r"\1", text)
     text = _HEADER_RE.sub("", text)
     text = _BULLET_RE.sub("", text)
     text = _BOLD_RE.sub(r"\2", text)
     text = _ITALIC_RE.sub(r"\1", text)
     text = _ITALIC_US_RE.sub(r"\1", text)
+    # Leftovers from markup split across chunks (e.g. bold spanning a sentence end).
+    text = _STRAY_STAR_RE.sub(lambda m: m.group(0) if len(m.group(0)) > 1 else "", text)
+    text = _LEADING_HASH_RE.sub("", text)
+    text = text.replace("`", "").replace("~", "")
     return " ".join(text.split())
 
 
@@ -56,11 +74,12 @@ class SentenceSplitter:
         i = 0
         buf = self._buf
         while i < len(buf):
-            if buf.startswith(FENCE, i):
-                close = buf.find(FENCE, i + len(FENCE))
+            fence = next((f for f in FENCES if buf.startswith(f, i)), None)
+            if fence:
+                close = buf.find(fence, i + 3)
                 if close == -1:
                     break
-                i = close + len(FENCE)
+                i = close + 3
                 continue
             c = buf[i]
             if c == "\n" or (c in ".!?" and self._is_boundary(buf, start, i)):

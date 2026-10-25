@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jarvis.voice.speech import KokoroTTS, SentenceSplitter, to_speakable
+from jarvis.voice.speech import CODE_SPOKEN, KokoroTTS, SentenceSplitter, to_speakable
 
 MODEL = Path("models/kokoro/kokoro-v1.0.onnx")
 VOICES = Path("models/kokoro/voices-v1.0.bin")
@@ -74,6 +74,50 @@ def test_splitter_holds_open_fence():
     assert out[0].startswith("Code:") and out[0].endswith("```")
     assert out[1] == "Done."
     assert to_speakable(out[0]) == "Code: I put the code in the log."
+
+
+def _speak_stream(deltas):
+    sp = SentenceSplitter()
+    chunks = [c for d in deltas for c in sp.feed(d)] + sp.flush()
+    return [t for t in (to_speakable(c) for c in chunks) if t]
+
+
+def test_bold_across_sentence_boundary():
+    out = _speak_stream(["**Heads up. Report is due** tomor", "row. "])
+    assert out == ["Heads up.", "Report is due tomorrow."]
+
+
+def test_inline_code_across_sentence_boundary():
+    assert _speak_stream(["Say `a. b` ok."]) == ["Say a.", "b ok."]
+
+
+def test_arithmetic_star_kept():
+    assert to_speakable("3 * 4 is 12") == "3 * 4 is 12"
+
+
+def test_blockquote_and_rule():
+    assert to_speakable("> a quote\n---\nafter") == "a quote after"
+
+
+def test_table_rows():
+    out = to_speakable("| a | b |\n|---|---|\n| 1 | 2 |")
+    assert out == "a, b 1, 2"
+
+
+def test_strikethrough_and_tilde_fence():
+    assert to_speakable("~~old~~ new") == "old new"
+    assert to_speakable("x\n~~~\ncode\n~~~\ny") == f"x {CODE_SPOKEN} y"
+
+
+def test_splitter_holds_tilde_fence():
+    sp = SentenceSplitter()
+    assert sp.feed("A. ~~~\nb. c\n") == ["A."]
+    out = sp.feed("~~~\nD. ")
+    assert out[0].endswith("~~~") and out[1] == "D."
+
+
+def test_autolink_angle_brackets():
+    assert to_speakable("See <https://x.com/a> now") == "See a link now"
 
 
 @pytest.mark.skipif(not (MODEL.exists() and VOICES.exists()), reason="kokoro model absent")
