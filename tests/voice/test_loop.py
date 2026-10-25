@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from jarvis.voice.audio import tone
 from jarvis.voice.brain import BrainTimeout
@@ -267,6 +268,23 @@ async def test_new_conversation_resets():
     assert brain.asked == []
     assert d.player.played == ["tone:wake", "Okay, fresh start."]
     assert d.log.turns == [("New conversation.", "Okay, fresh start.")]
+
+
+@pytest.mark.parametrize("phrase", ["Nevermind.", "never mind", "Hey Jarvis, cancel.", "Stop!"])
+async def test_nevermind_drops_the_conversation(phrase):
+    brain = FakeBrain([["Hi."]])
+    loop, d = make([AUDIO], [phrase], brain)
+    await loop.run()
+    assert brain.asked == []
+    assert d.player.played == ["tone:wake", "Okay."]
+
+
+async def test_nevermind_in_followup_ends_it():
+    brain = FakeBrain([["Report is due."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO], ["what's due", "nevermind"], brain)
+    await loop.run()
+    assert brain.asked == ["what's due"]
+    assert d.player.played == ["tone:wake", "Report is due.", "Okay."]
 
 
 async def test_handle_turn_directly():

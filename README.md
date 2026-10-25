@@ -135,7 +135,9 @@ for a wake word ("hey Jarvis"), records until you finish speaking (Silero VAD pl
 the smart-turn model, with a 3 s hard stop), transcribes locally with Whisper, sends
 the text to a warm Claude Code session running in your vault, and speaks the reply
 sentence by sentence with Kokoro TTS. After a reply it keeps listening for 8 s so
-you can follow up without the wake word; "new conversation" starts a fresh session.
+you can follow up without the wake word; "new conversation" starts a fresh session,
+and "nevermind" (or "cancel", "stop", "forget it") drops the conversation. It cannot
+hear you while it is talking (the mic is muted to avoid hearing itself).
 A small room MCP server (`list_devices`, `get_state`, `set_state`) lets Claude drive
 devices through an HTTP room API. It is separate from the vision runtime and has its
 own environment (`.venv-voice`, Python 3.12, Apple silicon for STT today).

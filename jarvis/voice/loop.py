@@ -28,6 +28,8 @@ LISTEN_TIMEOUT_S = 6
 CONFIRM_TIMEOUT_S = 6
 MUTE_TAIL_S = 0.3
 NEW_CONVERSATION = "new conversation"
+# Said on its own, any of these drops the conversation without asking Claude.
+CANCEL_PHRASES = {"nevermind", "never mind", "cancel", "stop", "forget it", "thats all"}
 
 # What the conversation does after an utterance.
 FOLLOWUP = "followup"  # answered: open the follow-up window
@@ -117,6 +119,10 @@ class VoiceLoop:
         text = strip_wake_phrase(transcript) if transcript else ""
         if not text:
             return WAKE_ONLY if transcript else IDLE
+        if _normalize(text) in CANCEL_PHRASES:
+            await self._say("Okay.")
+            self._log_turn(text, "Okay.")
+            return IDLE
 
         self._said = []
         outcome = FOLLOWUP
@@ -137,11 +143,14 @@ class VoiceLoop:
         finally:
             self._turn_active = False
             await self._stop_working_tone()
+        self._log_turn(text, " ".join(self._said))
+        return outcome
+
+    def _log_turn(self, heard: str, said: str) -> None:
         try:
-            self.log.log_turn(text, " ".join(self._said))
+            self.log.log_turn(heard, said)
         except Exception:
             traceback.print_exc(file=sys.stderr)
-        return outcome
 
     def _archive(self, audio: np.ndarray, transcript: str | None) -> None:
         """Archive an utterance; a disk failure is logged, never fails the turn."""
