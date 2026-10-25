@@ -160,12 +160,15 @@ enabled until a faster-whisper STT backend lands).
 ### Run
 
 ```bash
-.venv-voice/bin/jarvis-room-stub
+.venv-voice/bin/jarvis-room
 .venv-voice/bin/jarvis-voice --local config.voice.local.yaml
 ```
 
-Run the two commands in separate terminals; the stub is an in-memory room API for
-testing. `jarvis-voice --list-devices` lists audio devices (set `input_device` /
+Run the two commands in separate terminals. `jarvis-room` is the real room API: it
+exposes only devices that exist, today `speakers` (the Mac's output volume plus the
+Spotify desktop app; "play <song>" needs `spotify_client_id` / `spotify_client_secret`
+in your local config, Spotify links play without them). `jarvis-room-stub` fakes a
+fan, window, thermostat and speakers for testing. `jarvis-voice --list-devices` lists audio devices (set `input_device` /
 `output_device` in the config), `--no-room` skips the room tools, and `--check`
 loads every model and builds the session config, then prints `ok` and exits. State
 transitions are logged to stderr as `[voice] IDLE -> LISTEN`.

@@ -46,6 +46,11 @@ tool-result text, so keep it short and specific.
 | `thermostat` | `target_f`: int 60-85, `mode`: `"cool"` / `"heat"` / `"off"` |
 | `speakers` | `playing`: bool, `query`: str, `volume`: int 0-100 |
 
+`jarvis-room` (the real server) implements only `speakers` today, backed by the
+Mac's system output volume and the Spotify desktop app; its state also carries a
+read-only `now_playing` ("Track by Artist"). If the Mac or Spotify fails a command
+it answers `502` with `{"error": "..."}`. `jarvis-room-stub` implements all four.
+
 A real implementation may add devices or fields; the agent discovers them via
 `GET /devices`.
 

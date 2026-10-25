@@ -11,6 +11,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from jarvis.voice.mac_speakers import MacSpeakers, SpeakerError, SpotifySearch
+
 DEFAULT_PORT = 8790
 
 
@@ -45,21 +47,32 @@ _INITIAL = {
 
 
 class RoomState:
-    def __init__(self) -> None:
+    """In-memory devices; `speakers` (a MacSpeakers) makes that one device real."""
+
+    def __init__(self, speakers: "MacSpeakers | None" = None,
+                 only: "set[str] | None" = None) -> None:
         self._lock = threading.Lock()
+        self._speakers = speakers
         self._devices = {
             did: {"id": did, "name": name, "kind": did, "state": copy.deepcopy(state)}
             for did, (name, state) in _INITIAL.items()
+            if only is None or did in only
         }
+
+    def _live(self, dev: dict) -> dict:
+        dev = copy.deepcopy(dev)
+        if dev["id"] == "speakers" and self._speakers is not None:
+            dev["state"] = self._speakers.state()
+        return dev
 
     def list(self) -> list[dict]:
         with self._lock:
-            return copy.deepcopy(list(self._devices.values()))
+            return [self._live(d) for d in self._devices.values()]
 
     def get(self, did: str) -> dict | None:
         with self._lock:
             dev = self._devices.get(did)
-            return copy.deepcopy(dev) if dev else None
+            return self._live(dev) if dev else None
 
     def patch(self, did: str, patch: object) -> tuple[int, dict]:
         with self._lock:
@@ -75,6 +88,12 @@ class RoomState:
                 check, desc = schema[key]
                 if not check(value):
                     return 400, {"error": f"{key} must be {desc}"}
+            if did == "speakers" and self._speakers is not None:
+                try:
+                    self._speakers.apply(patch)
+                    return 200, self._live(dev)
+                except SpeakerError as exc:
+                    return 502, {"error": str(exc)}
             dev["state"].update(patch)
             return 200, copy.deepcopy(dev)
 
@@ -94,6 +113,12 @@ def _make_handler(room: RoomState) -> type[BaseHTTPRequestHandler]:
             return parts[1] if len(parts) == 2 and parts[0] == "devices" else None
 
         def do_GET(self) -> None:
+            try:
+                self._get()
+            except SpeakerError as exc:
+                self._send(502, {"error": str(exc)})
+
+        def _get(self) -> None:
             if self.path.split("?")[0].rstrip("/") == "/devices":
                 self._send(200, room.list())
                 return
@@ -125,15 +150,20 @@ def _make_handler(room: RoomState) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def make_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), _make_handler(RoomState()))
+def make_server(host: str = "127.0.0.1", port: int = DEFAULT_PORT,
+                speakers: MacSpeakers | None = None,
+                only: set[str] | None = None) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), _make_handler(RoomState(speakers, only)))
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Stub room API for the Jarvis voice agent")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--real-speakers", action="store_true",
+                        help="drive this Mac's audio output + Spotify instead of a fake speakers")
     args = parser.parse_args(argv)
-    server = make_server("127.0.0.1", args.port)
+    speakers = MacSpeakers(search=SpotifySearch.from_env()) if args.real_speakers else None
+    server = make_server("127.0.0.1", args.port, speakers)
     print(f"room-stub listening on http://127.0.0.1:{args.port}", file=sys.stderr)
     try:
         server.serve_forever()

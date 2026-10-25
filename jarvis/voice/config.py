@@ -25,6 +25,8 @@ class VoiceConfig:
     tts_voice: str = "bm_daniel"
     address_as: str = "sir"
     permission_mode: str = "auto"
+    spotify_client_id: str | None = None
+    spotify_client_secret: str | None = None
     kokoro_model: Path
     kokoro_voices: Path
     smart_turn_model: Path

@@ -23,7 +23,7 @@ Manual run, without the service:
 .venv-voice/bin/jarvis-voice --config config.voice.example.yaml --local config.voice.local.yaml
 ```
 
-The room API stub for testing without a real room backend is `.venv-voice/bin/jarvis-room-stub`.
+The room API is `.venv-voice/bin/jarvis-room` (real devices only: the Mac's speakers via Spotify); `.venv-voice/bin/jarvis-room-stub` fakes every device for testing.
 
 ## Mac mini (macOS)
 
