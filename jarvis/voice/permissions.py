@@ -176,7 +176,8 @@ def _clip(value: object, limit: int = MAX_SPOKEN) -> str:
 
 def _person(value: object) -> str:
     if isinstance(value, dict):
-        value = value.get("email") or value.get("address") or value.get("name") or ""
+        # Unknown shapes fall back to the whole dict: a recipient is never dropped.
+        value = value.get("email") or value.get("address") or value.get("name") or str(value)
     text = " ".join(str(value).split())
     for ch in "`*#[]<>|":  # keep "_" so john_doe@x.com stays intact
         text = text.replace(ch, " ")
@@ -253,10 +254,15 @@ def _attendee_tail(tool_input: dict) -> str:
     return " with attendees" if _has_attendees(tool_input) else ""
 
 
+def _present(value: object) -> bool:
+    """Truthy and, for strings, not whitespace only."""
+    return bool(value) and not (isinstance(value, str) and not value.strip())
+
+
 def _find_key(value: object, keys: tuple[str, ...]) -> object:
     if isinstance(value, dict):
         for k in keys:
-            if value.get(k):
+            if _present(value.get(k)):
                 return value[k]
         for item in value.values():
             found = _find_key(item, keys)

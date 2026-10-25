@@ -364,3 +364,22 @@ def test_round5_long_readback_is_too_long():
     assert not too_long_to_confirm("mcp__claude_ai_Gmail__send_message", {"to": ["a@x.com"], "subject": "s"})
     assert too_long_to_confirm("Bash", {"command": "x" * 201})
     assert not too_long_to_confirm("Bash", {"command": "ls"})
+
+
+def test_dict_recipient_without_known_keys_is_still_read_back():
+    send = "mcp__claude_ai_Gmail__send_message"
+    out = describe_action(send, {"to": [{"handle": "mystery-recipient"}], "subject": "s"})
+    assert "mystery-recipient" in out
+
+
+def test_whitespace_only_titles_count_as_missing():
+    create = "mcp__notion__notion-calendar-create-events"
+    assert describe_action(create, {"events": [{"title": "   "}]}) == (
+        "Create a Notion calendar event?"
+    )
+    cancel = "mcp__notion__notion-calendar-cancel-events"
+    assert describe_action(cancel, {"events": [_cal("A"), _cal(" ")]}) == (
+        "Cancel 2 Notion calendar events?"
+    )
+    cal = "mcp__claude_ai_Google_Calendar__create_event"
+    assert describe_action(cal, {"summary": " \n "}) == "Create event an event?"
