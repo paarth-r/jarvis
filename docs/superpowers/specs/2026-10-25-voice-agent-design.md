@@ -231,11 +231,13 @@ answer itself.
 
 ## Open risks (verify first, before building around them)
 
-1. **claude.ai connectors (Gmail, Calendar, Drive) are expected NOT to load**
-   in a headless Agent SDK session (prior art found this). Spike #1 confirms by
-   listing the session's tools. If confirmed, Gmail/Calendar get local MCP
-   servers configured on the box; wiki and memory are local and
-   unaffected.
+1. ~~claude.ai connectors expected not to load headless~~ **RESOLVED
+   2026-10-25:** `claude -p --output-format stream-json` run from the vault on
+   their login reports Gmail, Calendar, Drive, Docs, Notion and iMessage MCP
+   servers `connected`, 154 tools, all 57 skills (
+   model claude-opus-5-5. The prior-art
+   finding doesn't apply here. Still confirm the same through the Agent SDK in
+   the first build task.
 2. **Wake-word quality for "hey claude"** once trained; false accepts from
    music/YouTube in the room.
 3. **macOS mic permission for a background service.** The service must run as
