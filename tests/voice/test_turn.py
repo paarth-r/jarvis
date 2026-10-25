@@ -46,7 +46,7 @@ async def test_no_speech_returns_none():
 
 async def test_pause_with_incomplete_turn_keeps_listening():
     turn = FakeTurn([0.1, 0.9])
-    rec = UtteranceRecorder(FakeVAD(), turn)
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.4)
     audio = await rec.record(
         make_frames([(1, 1.0), (0, 0.5), (1, 1.0), (0, 1.0)]), start_timeout_s=2.0
     )
@@ -58,7 +58,7 @@ async def test_pause_with_incomplete_turn_keeps_listening():
 
 async def test_hard_silence_ends_turn():
     turn = FakeTurn([0.1])
-    rec = UtteranceRecorder(FakeVAD(), turn)
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.4)
     audio = await rec.record(
         make_frames([(1, 1.0), (0, 10.0)]), start_timeout_s=2.0
     )
@@ -69,7 +69,7 @@ async def test_hard_silence_ends_turn():
 
 async def test_short_silence_never_consults_model():
     turn = FakeTurn([0.9])
-    rec = UtteranceRecorder(FakeVAD(), turn)
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.4)
     audio = await rec.record(
         make_frames([(1, 1.0), (0, 0.24), (1, 0.5)]), start_timeout_s=2.0
     )

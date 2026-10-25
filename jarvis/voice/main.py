@@ -84,6 +84,7 @@ def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
     print(f"[voice] wake words: {', '.join(wake.names)}", file=sys.stderr, flush=True)
     recorder = UtteranceRecorder(SileroVAD(), SmartTurn(cfg.smart_turn_model),
                                  hard_silence_s=cfg.hard_silence_s,
+                                 pause_check_s=cfg.pause_check_s,
                                  max_utterance_s=cfg.max_utterance_s)
     stt = WhisperSTT(cfg.stt_model, load_vocab_prompt(cfg.vocab_file))
     tts = KokoroTTS(cfg.kokoro_model, cfg.kokoro_voices, cfg.tts_voice)

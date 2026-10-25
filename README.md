@@ -170,6 +170,12 @@ testing. `jarvis-voice --list-devices` lists audio devices (set `input_device` /
 loads every model and builds the session config, then prints `ok` and exits. State
 transitions are logged to stderr as `[voice] IDLE -> LISTEN`.
 
+### Terminal trace
+
+Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),
+`[thinking]` (Claude's thinking, when it streams any), `[tool]` / `[result]` (each
+tool call and its outcome) and `[said]` (each spoken sentence).
+
 ### Drop-in wake words
 
 Every `*.onnx` openWakeWord model in `models/wakeword/` is loaded next to the

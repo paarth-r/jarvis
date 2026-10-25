@@ -81,8 +81,8 @@ class UtteranceRecorder:
         self,
         vad: SpeechDetector,
         smart_turn: TurnModel,
-        hard_silence_s: float = 3.0,
-        pause_check_s: float = 0.4,
+        hard_silence_s: float = 1.5,
+        pause_check_s: float = 0.24,
         max_utterance_s: float = MAX_UTTERANCE_S,
     ) -> None:
         self._vad = vad

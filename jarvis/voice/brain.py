@@ -34,11 +34,16 @@ from claude_agent_sdk import (
     StreamEvent,
     SystemMessage,
     TextBlock,
+    ThinkingBlock,
     ToolPermissionContext,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
 )
 
 from jarvis.voice.config import VoiceConfig
 from jarvis.voice.permissions import classify_tool, describe_action, too_long_to_confirm
+from jarvis.voice.trace import tool_summary, trace
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +189,7 @@ class Brain:
             budget = await self._timed(client.query(text), budget)
             stream = client.receive_response().__aiter__()
             streamed = False  # current message already produced text deltas
+            thought = ""  # thinking deltas of the current block, traced when it ends
             while True:
                 try:
                     msg, budget = await self._timed_next(stream, budget)
@@ -205,12 +211,32 @@ class Brain:
                         if d.get("type") == "text_delta" and d.get("text"):
                             streamed = True
                             yield d["text"]
+                        elif d.get("type") == "thinking_delta":
+                            thought += d.get("thinking", "")
+                    elif event.get("type") == "content_block_stop" and thought:
+                        trace("thinking", thought, limit=1200)
+                        thought = ""
                 elif isinstance(msg, AssistantMessage):
-                    if msg.parent_tool_use_id is not None or streamed:
+                    sub = msg.parent_tool_use_id is not None
+                    for block in msg.content:
+                        if isinstance(block, ToolUseBlock):
+                            trace("subagent tool" if sub else "tool",
+                                  tool_summary(block.name, block.input or {}))
+                    if sub or streamed:
                         continue
                     for block in msg.content:
-                        if isinstance(block, TextBlock) and block.text:
+                        if isinstance(block, ThinkingBlock) and block.thinking:
+                            trace("thinking", block.thinking, limit=1200)
+                        elif isinstance(block, TextBlock) and block.text:
                             yield block.text
+                elif isinstance(msg, UserMessage) and msg.parent_tool_use_id is None:
+                    for block in msg.content if isinstance(msg.content, list) else []:
+                        if isinstance(block, ToolResultBlock):
+                            body = block.content
+                            if isinstance(body, list):
+                                body = " ".join(str(c.get("text", "")) for c in body if isinstance(c, dict))
+                            trace("result", ("error: " if block.is_error else "") + str(body or "ok"),
+                                  limit=200)
             finished = True
         except TimeoutError:
             raise BrainTimeout(

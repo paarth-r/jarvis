@@ -21,6 +21,7 @@ import numpy as np
 from jarvis.voice.audio import tone
 from jarvis.voice.brain import BrainTimeout
 from jarvis.voice.intent import judge_approval
+from jarvis.voice.trace import trace
 from jarvis.voice.speech import SentenceSplitter, to_speakable
 from jarvis.voice.stt import strip_wake_phrase
 
@@ -129,6 +130,7 @@ class VoiceLoop:
             await self._fail(exc)
             return IDLE
         self._archive(audio, transcript)
+        trace("heard", transcript or "(nothing)")
         text = strip_wake_phrase(transcript) if transcript else ""
         if not text:
             return WAKE_ONLY if transcript else IDLE
@@ -225,6 +227,7 @@ class VoiceLoop:
                 if audio is not None:
                     transcript = await asyncio.to_thread(self.stt.transcribe, audio)
                     self._archive(audio, transcript)
+                trace("heard", transcript or "(nothing)")
                 answer = strip_wake_phrase(transcript) if transcript else None
                 approved = await self.judge(question, answer)
                 if not approved:
@@ -268,6 +271,7 @@ class VoiceLoop:
             return
         self._set("SPEAK")
         samples, sr = await asyncio.to_thread(self.tts.synth, speakable)
+        trace("said", speakable)
         with self.mic.mute(MUTE_TAIL_S):
             await self.player.play(samples, sr)
         self._said.append(speakable)
