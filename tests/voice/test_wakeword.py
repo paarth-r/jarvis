@@ -51,12 +51,23 @@ def test_fires_on_synthesized_phrase(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(shutil.which("say") is None, reason="macOS say not available")
 def test_reset_clears_state(tmp_path: Path) -> None:
+    frames = _frames(_say(tmp_path, "hey jarvis"))
+    probe = WakeWord(tmp_path, 0.5)
+    first = next(i for i, f in enumerate(frames) if probe.process(f))
+    rest = frames[first + 1:]
+
+    # Control: without reset the continuation of the phrase keeps firing.
     ww = WakeWord(tmp_path, 0.5)
-    hits = [ww.process(f) for f in _frames(_say(tmp_path, "hey jarvis"))]
-    assert "hey_jarvis" in hits
+    for f in frames[:first + 1]:
+        ww.process(f)
+    assert any(ww.process(f) for f in rest)
+
+    # With reset the buffered audio is gone, so the same continuation is silent.
+    ww = WakeWord(tmp_path, 0.5)
+    for f in frames[:first + 1]:
+        ww.process(f)
     ww.reset()
-    zero = np.zeros(FRAME, dtype=np.int16)
-    assert all(ww.process(zero) is None for _ in range(50))
+    assert not any(ww.process(f) for f in rest)
 
 
 async def test_mic_mute_drops_frames_and_tail() -> None:
@@ -66,13 +77,44 @@ async def test_mic_mute_drops_frames_and_tail() -> None:
     with mic.mute(0.05):
         mic._enqueue(frame)
     mic._enqueue(frame)  # inside the tail
-    assert mic._queue.qsize() == 1
+    assert mic._queue.qsize() == 0
     time.sleep(0.06)
     mic._enqueue(frame)
-    assert mic._queue.qsize() == 2
+    assert mic._queue.qsize() == 1
 
 
 def test_tone_shapes() -> None:
     for kind in ("wake", "working", "error"):
         samples, sr = tone(kind)  # type: ignore[arg-type]
         assert samples.dtype == np.int16 and sr > 0 and len(samples) > 0
+
+
+async def test_mic_mute_drains_queued_frames() -> None:
+    mic = MicStream()
+    frame = np.ones(FRAME, dtype=np.int16)
+    mic._enqueue(frame)
+    mic._enqueue(frame)
+    with mic.mute(0.0):
+        assert mic._queue.qsize() == 0
+        mic._enqueue(frame)
+    assert mic._queue.qsize() == 0
+
+
+async def test_player_cancel_stops_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    import asyncio
+    import threading
+
+    from jarvis.voice import audio
+
+    started, release, stopped = threading.Event(), threading.Event(), []
+    monkeypatch.setattr(audio.sd, "play", lambda *a, **k: started.set())
+    monkeypatch.setattr(audio.sd, "wait", lambda: release.wait(5))
+    monkeypatch.setattr(audio.sd, "stop", lambda: (stopped.append(1), release.set()))
+
+    task = asyncio.create_task(audio.Player().play(np.zeros(100, np.int16), 16000))
+    while not started.is_set():
+        await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert stopped

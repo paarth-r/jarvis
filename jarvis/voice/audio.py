@@ -39,10 +39,16 @@ class MicStream:
         assert self._loop is not None
         self._loop.call_soon_threadsafe(self._enqueue, indata[:, 0].copy())
 
+    def _drain(self) -> None:
+        """Discard frames queued before/while muted (stale or self-heard audio)."""
+        while not self._queue.empty():
+            self._queue.get_nowait()
+
     @contextmanager
     def mute(self, seconds_tail: float = 0.3) -> Iterator[None]:
         with self._lock:
             self._mute_depth += 1
+        self._drain()
         try:
             yield
         finally:
@@ -50,6 +56,7 @@ class MicStream:
                 self._mute_depth -= 1
                 self._muted_until = max(self._muted_until,
                                         time.monotonic() + seconds_tail)
+            self._drain()
 
     async def frames(self) -> AsyncIterator[np.ndarray]:
         self._loop = asyncio.get_running_loop()
@@ -78,7 +85,11 @@ class Player:
             sd.play(samples, sr, device=self._device)
             sd.wait()
 
-        await asyncio.to_thread(run)
+        try:
+            await asyncio.to_thread(run)
+        except asyncio.CancelledError:
+            sd.stop()
+            raise
 
     def stop(self) -> None:
         sd.stop()
