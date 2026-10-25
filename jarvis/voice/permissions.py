@@ -28,8 +28,11 @@ MUTATING_WORDS = (
     "send", "reply", "forward", "share", "delete", "trash", "cancel", "spawn",
     "comment", "update", "create", "write", "set", "mark", "move", "remove",
     "drop", "push", "publish", "execute", "run", "post", "add", "edit",
-    "upload", "invite", "respond",
+    "upload", "invite", "respond", "approve", "pay", "archive", "rename",
+    "reset", "restore", "label", "copy", "duplicate", "convert", "stop",
+    "resolve", "react", "purchase", "out", "unlabel", "untrash", "apply",
 )
+CONJUNCTIONS = {"and", "or"}
 AFFIRMATIVES = {
     "yes", "yeah", "yep", "yes please", "do it", "send it", "go ahead",
     "confirm", "yes send it", "yes do it",
@@ -100,20 +103,28 @@ def classify_tool(
         ):
             return "allow"
         return "confirm"
-    tokens = _tool_part(norm).split("_")
     if norm.startswith("mcp__room__"):
         return "allow"
-    server_last = norm.split("__")[1].split("_")[-1] if "__" in norm else ""
-    body = list(tokens)
-    while body and body[0] in {server_last, "calendar"} and len(body) > 1:
-        body.pop(0)
+    segments = norm.split("__", 2)
+    if len(segments) < 3 or not segments[1].strip("_") or not segments[2].strip("_"):
+        return "confirm"
+    server_last = segments[1].split("_")[-1]
+    body = [t for t in segments[2].split("_") if t]
+    # Strip at most one leading server-echo token, then at most one "calendar"
+    # token (notion-calendar-list-events -> list_events). Nothing else is skipped.
+    if len(body) > 1 and body[0] == server_last:
+        body = body[1:]
+    if len(body) > 1 and body[0] == "calendar":
+        body = body[1:]
+    if CONJUNCTIONS & set(body):
+        return "confirm"
     whole = "_".join(body)
     if whole == "create_draft":
         return "allow"
     if whole in {"create_event", "create_events"}:
         return "confirm" if _has_attendees(tool_input) else "allow"
     if body and body[0] in READ_VERBS and not any(
-        t.startswith(w) for t in tokens if t != server_last for w in MUTATING_WORDS
+        t.startswith(w) for t in body for w in MUTATING_WORDS
     ):
         return "allow"
     return "confirm"
@@ -154,9 +165,25 @@ def _clip(value: object, limit: int = MAX_SPOKEN) -> str:
 
 
 def _people(value: object) -> str:
+    """Every recipient, never truncated: hiding who receives something is unsafe."""
     if isinstance(value, (list, tuple)):
-        value = ", ".join(str(v) for v in value)
-    return _clip(value) if value else "someone"
+        value = ", ".join(str(v) for v in value if v)
+    return _clip(value, limit=10_000) if value else "someone"
+
+
+def _join_clauses(clauses: list[str]) -> str:
+    if len(clauses) <= 1:
+        return "".join(clauses)
+    return ", ".join(clauses[:-1]) + ", and " + clauses[-1]
+
+
+def _copy_clauses(tool_input: dict) -> list[str]:
+    clauses = []
+    if tool_input.get("cc"):
+        clauses.append(f"copying {_people(tool_input['cc'])}")
+    if tool_input.get("bcc"):
+        clauses.append(f"blind copying {_people(tool_input['bcc'])}")
+    return clauses
 
 
 def _short_name(name: str) -> str:
@@ -178,6 +205,13 @@ def _count_attendees(value: object) -> int:
     elif isinstance(value, (list, tuple)):
         n = sum(_count_attendees(i) for i in value)
     return n
+
+
+def _attendee_tail(tool_input: dict) -> str:
+    count = _count_attendees(tool_input)
+    if count:
+        return f" with {count} attendees"
+    return " with attendees" if _has_attendees(tool_input) else ""
 
 
 def _find_key(value: object, keys: tuple[str, ...]) -> object:
@@ -202,9 +236,18 @@ def _describe_gmail(name: str, tool_input: dict) -> str:
         return "Send your saved draft?"
     norm = name.lower()
     if norm.endswith("reply"):
-        return "Reply all to the email thread?" if tool_input.get("replyAll") else "Reply to the email thread?"
+        base = "Reply all to the" if tool_input.get("replyAll") else "Reply to the"
+        clauses = []
+        if tool_input.get("to"):
+            clauses.append(f"sending to {_people(tool_input['to'])}")
+        clauses += _copy_clauses(tool_input)
+        if not clauses:
+            return f"{base} email thread?"
+        return f"{base} thread, {_join_clauses(clauses)}?"
     if norm.endswith("forward"):
-        return f"Forward the email to {_people(tool_input.get('to'))}?"
+        clauses = _copy_clauses(tool_input)
+        head = f"Forward the email to {_people(tool_input.get('to'))}"
+        return f"{head}, {_join_clauses(clauses)}?" if clauses else f"{head}?"
     verb = "Reply all" if tool_input.get("replyAll") else "Send an email"
     text = f"{verb} to {_people(tool_input.get('to'))}"
     if tool_input.get("cc"):
@@ -240,9 +283,12 @@ def describe_action(name: str, tool_input: dict) -> str:
             return f"Send a text message to {_clip(target)}: {_clip(tool_input.get('text', ''))}?"
         if "share" in norm:
             return _describe_share(tool_input)
+        if "notion" in norm and "calendar" in norm and "event" in norm:
+            verb = "Create" if "create" in norm else "Cancel" if "cancel" in norm else "Change"
+            title = _find_key(tool_input, ("summary", "title"))
+            what = f"the Notion calendar event {_clip(title)}" if title else "a Notion calendar event"
+            return f"{verb} {what}{_attendee_tail(tool_input)}?"
         if "create_event" in norm or "update_event" in norm or "respond_to_event" in norm:
             title = _find_key(tool_input, ("summary", "title")) or "an event"
-            count = _count_attendees(tool_input)
-            tail = f" with {count} attendees" if count else ""
-            return f"{_short_name(name).capitalize()} {_clip(title)}{tail}?"
+            return f"{_short_name(name).capitalize()} {_clip(title)}{_attendee_tail(tool_input)}?"
     return f"Use {_short_name(name)}?"

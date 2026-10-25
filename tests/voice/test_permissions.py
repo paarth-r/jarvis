@@ -219,3 +219,80 @@ def test_describe_fallbacks():
     assert describe_action("mcp__claude_ai_Google_Drive__share_file", {}) == "Share a file with someone?"
     assert describe_action("Write", {"file_path": "/a/b.txt"}) == "Write the file b.txt?"
     assert "delete" in describe_action("mcp__claude_ai_Google_Calendar__delete_event", {"event_id": "1"}).lower()
+
+
+def test_round4_reply_forward_readbacks():
+    reply = "mcp__claude_ai_Gmail__reply"
+    fwd = "mcp__claude_ai_Gmail__forward"
+    assert describe_action(
+        reply, {"messageId": "m", "body": "b", "to": ["x@a.com"], "cc": ["y@a.com"], "bcc": ["z@a.com"]}
+    ) == "Reply to the thread, sending to x@a.com, copying y@a.com, and blind copying z@a.com?"
+    assert describe_action(reply, {"messageId": "m", "bcc": ["z@a.com"]}) == (
+        "Reply to the thread, blind copying z@a.com?"
+    )
+    assert describe_action(reply, {"messageId": "m", "replyAll": True, "cc": ["y@a.com"]}) == (
+        "Reply all to the thread, copying y@a.com?"
+    )
+    assert describe_action(reply, {"messageId": "m", "replyAll": True}) == "Reply all to the email thread?"
+    assert describe_action(reply, {"messageId": "m", "to": [], "cc": []}) == "Reply to the email thread?"
+    assert describe_action(
+        fwd, {"messageId": "m", "to": ["x@a.com"], "cc": ["y@a.com"], "bcc": ["z@a.com"]}
+    ) == "Forward the email to x@a.com, copying y@a.com, and blind copying z@a.com?"
+    assert describe_action(fwd, {"messageId": "m", "bcc": ["z@a.com"]}) == (
+        "Forward the email to someone, blind copying z@a.com?"
+    )
+    many = [f"person{i}@example.com" for i in range(8)]
+    out = describe_action(reply, {"messageId": "m", "to": many})
+    assert all(p in out for p in many) and "..." not in out
+
+
+def test_round4_mcp_name_rules(vault):
+    confirm = [
+        "mcp__run__list_run", "mcp__a_push__list_push", "mcp__push__push_list_push",
+        "mcp__notion__notion-notion-list-pages", "mcp__srv__srv_srv_list",
+        "mcp__srv__list_and_get", "mcp__srv__get_or_list", "mcp__srv__check_out",
+        "mcp__srv__list_and", "mcp____list", "mcp__srv__", "mcp__",
+        "mcp__srv__get_approve", "mcp__srv__list_pay", "mcp__srv__get_archive",
+        "mcp__srv__get_rename", "mcp__srv__get_reset", "mcp__srv__get_restore",
+        "mcp__srv__get_label", "mcp__srv__get_copy", "mcp__srv__get_duplicate",
+        "mcp__srv__get_convert", "mcp__srv__get_stop", "mcp__srv__get_resolve",
+        "mcp__srv__get_react", "mcp__srv__get_purchase", "mcp__srv__get_unlabel",
+        "mcp__srv__get_untrash", "mcp__srv__get_apply", "mcp__srv__get_mark",
+        "mcp__claude_ai_Gmail__untrash_thread", "mcp__claude_ai_Gmail__label_thread",
+        "mcp__claude_ai_Gmail__apply_sensitive_message_label",
+        "mcp__claude_ai_Google_Drive__copy_file", "mcp__notion__notion-duplicate-page",
+        "mcp__notion__notion-restore-pages", "mcp__notion__notion-stop-session",
+        "mcp__notion__notion-set-comment-reaction", "mcp__notion__notion-convert-page-to-skill",
+    ]
+    for name in confirm:
+        assert classify_tool(name, {}, vault) == "confirm", name
+    allow = [
+        "mcp__claude_ai_Gmail__search_threads", "mcp__claude_ai_Gmail__get_thread",
+        "mcp__claude_ai_Gmail__create_draft", "mcp__claude_ai_Google_Calendar__list_events",
+        "mcp__claude_ai_Google_Drive__read_file_content",
+        "mcp__claude_ai_Google_Drive__download_file_content",
+        "mcp__notion__notion-fetch", "mcp__notion__notion-search",
+        "mcp__notion__notion-calendar-list-events", "mcp__room__set_state",
+    ]
+    for name in allow:
+        assert classify_tool(name, {}, vault) == "allow", name
+    cal = "mcp__claude_ai_Google_Calendar__"
+    assert classify_tool(cal + "create_event", {"summary": "tennis"}, vault) == "allow"
+    assert classify_tool(cal + "create_event", {"attendeeEmails": ["a@b.c"]}, vault) == "confirm"
+    assert classify_tool(cal + "update_event", {}, vault) == "confirm"
+
+
+def test_round4_calendar_readbacks():
+    cal = "mcp__claude_ai_Google_Calendar__create_event"
+    out = describe_action(cal, {"summary": "Tennis", "attendees": {"a": {"email": "a@b.c"}}})
+    assert out.endswith("Tennis with attendees?")
+    n = "mcp__notion__notion-calendar-update-events"
+    assert describe_action(n, {}) == "Change a Notion calendar event?"
+    assert describe_action(n, {"events": [{"attendees": {"x": 1}}]}) == "Change a Notion calendar event with attendees?"
+    assert describe_action("mcp__notion__notion-calendar-create-events", {"events": [{"title": "Lunch"}]}) == (
+        "Create the Notion calendar event Lunch?"
+    )
+    assert describe_action("mcp__notion__notion-calendar-cancel-events", {}) == "Cancel a Notion calendar event?"
+    assert describe_action(
+        "mcp__notion__notion-calendar-create-events", {"events": [{"title": "L", "attendees": ["a", "b"]}]}
+    ) == "Create the Notion calendar event L with 2 attendees?"
