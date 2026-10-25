@@ -16,6 +16,7 @@ from pathlib import Path
 from jarvis.voice.config import load_config
 from jarvis.voice.mac_speakers import MacSpeakers, SpotifySearch
 from jarvis.voice.room_stub import DEFAULT_PORT, make_server
+from jarvis.voice.spotify_user import UserLibrary
 
 REAL_DEVICES = {"speakers"}
 
@@ -37,12 +38,17 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     local = resolve_config_path(Path(args.local))
     cfg = load_config(resolve_config_path(Path(args.config)), local if local.exists() else None)
-    search = build_search(cfg.spotify_client_id, cfg.spotify_client_secret)
+    library = UserLibrary.from_cache(cfg.spotify_client_id)
+    if library is None:
+        print("[room] not logged in to your Spotify library: your playlists and Liked Songs "
+              "are unavailable (run jarvis-spotify-login once)", file=sys.stderr)
+    # Catalog search: client credentials if configured, else your login does it.
+    search = build_search(cfg.spotify_client_id, cfg.spotify_client_secret) or library
     if search is None:
         print("[room] Spotify search not configured: only Spotify links can be played "
-              "(set spotify_client_id / spotify_client_secret in your local config)",
-              file=sys.stderr)
-    server = make_server("127.0.0.1", args.port, MacSpeakers(search=search), REAL_DEVICES)
+              "(run jarvis-spotify-login, or set spotify_client_secret)", file=sys.stderr)
+    speakers = MacSpeakers(search=search, library=library)
+    server = make_server("127.0.0.1", args.port, speakers, REAL_DEVICES)
     print(f"[room] listening on http://127.0.0.1:{args.port} with {', '.join(sorted(REAL_DEVICES))}",
           file=sys.stderr)
     try:

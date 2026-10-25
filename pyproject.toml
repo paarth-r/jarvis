@@ -40,7 +40,7 @@ voice = [
     "mlx-whisper; sys_platform == 'darwin'",
     "transformers",
     "kokoro-onnx",
-    "httpx",
+    "httpx", "spotipy",
     "pyyaml",
     "pytest",
     "pytest-asyncio",
@@ -52,6 +52,7 @@ jarvis-gaze-calibrate = "jarvis.gaze_calibrate:main"
 jarvis-voice = "jarvis.voice.main:main"
 jarvis-room-stub = "jarvis.voice.room_stub:main"
 jarvis-room = "jarvis.voice.room_server:main"
+jarvis-spotify-login = "jarvis.voice.spotify_user:main"
 
 [project.urls]
 Homepage = "https://github.com/paarth-r/jarvis"

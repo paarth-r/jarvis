@@ -166,9 +166,12 @@ enabled until a faster-whisper STT backend lands).
 
 Run the two commands in separate terminals. `jarvis-room` is the real room API: it
 exposes only devices that exist, today `speakers` (the Mac's output volume plus the
-Spotify desktop app; "play <song>" needs `spotify_client_id` / `spotify_client_secret`
-in your local config, Spotify links play without them). Songs, albums, public
-playlists and artists can be searched and played, plus skip, shuffle, pause and volume. `jarvis-room-stub` fakes a
+Spotify desktop app). Songs, albums, public playlists, artists, your own playlists and
+your Liked Songs can be searched and played, plus skip, shuffle, pause and volume.
+Setup: put `spotify_client_id` in your local config (a developer.spotify.com app with
+redirect URI `http://127.0.0.1:8888/callback`), then run `jarvis-spotify-login` once;
+the token is cached in `~/.jarvis/` and refreshes itself. A `spotify_client_secret` is
+optional (catalog search without the login). `jarvis-room-stub` fakes a
 fan, window, thermostat and speakers for testing. `jarvis-voice --list-devices` lists audio devices (set `input_device` /
 `output_device` in the config), `--no-room` skips the room tools, and `--check`
 loads every model and builds the session config, then prints `ok` and exits. State

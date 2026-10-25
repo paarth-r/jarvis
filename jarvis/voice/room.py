@@ -106,7 +106,9 @@ def make_room_tools(client: RoomClient) -> list[SdkMcpTool]:
 
     @tool(
         "search_music",
-        "Search Spotify. kind is track, album, playlist or artist. Returns the top "
+        "Search Spotify. kind is track, album, playlist or artist (public catalog), "
+        "my_playlist (the user's own playlists, fuzzy name match) or liked (their Liked "
+        "Songs; query may be anything). Returns the top "
         "matches as {uri, name, by}. Play one with set_state(device='speakers', "
         "patch={'query': <uri>}); or skip searching and send patch={'query': 'lofi "
         "beats', 'kind': 'playlist'} to play the top match directly. Speakers also "

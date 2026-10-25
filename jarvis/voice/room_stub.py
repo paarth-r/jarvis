@@ -12,7 +12,7 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from jarvis.voice.mac_speakers import KINDS, MacSpeakers, SpeakerError, SpotifySearch
+from jarvis.voice.mac_speakers import ALL_KINDS, MacSpeakers, SpeakerError, SpotifySearch
 
 DEFAULT_PORT = 8790
 
@@ -36,7 +36,7 @@ _SCHEMA = {
         "playing": (lambda v: isinstance(v, bool), "a boolean"),
         "query": (lambda v: isinstance(v, str), "a string"),
         "volume": (lambda v: _is_int(v, 0, 100), "an integer 0-100"),
-        "kind": (lambda v: v in KINDS, "one of " + ", ".join(KINDS)),
+        "kind": (lambda v: v in ALL_KINDS, "one of " + ", ".join(ALL_KINDS)),
         "skip": (lambda v: v in ("next", "previous"), "next or previous"),
         "shuffle": (lambda v: isinstance(v, bool), "a boolean"),
     },
@@ -81,10 +81,10 @@ class RoomState:
     def search(self, query: str, kind: str, limit: int) -> tuple[int, object]:
         if self._speakers is None:
             return 404, {"error": "search needs the real speakers (jarvis-room)"}
-        if not query.strip():
+        if not query.strip() and kind != "liked":
             return 400, {"error": "q is required"}
-        if kind not in KINDS:
-            return 400, {"error": "kind must be one of " + ", ".join(KINDS)}
+        if kind not in ALL_KINDS:
+            return 400, {"error": "kind must be one of " + ", ".join(ALL_KINDS)}
         try:
             return 200, self._speakers.search(query, kind, limit)
         except SpeakerError as exc:

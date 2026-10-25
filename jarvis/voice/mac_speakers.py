@@ -24,6 +24,12 @@ Osascript = Callable[[str], str]
 # resolves a free-text query of a kind (track/album/playlist/artist) to a spotify: URI
 Search = Callable[[str, str], str]
 KINDS = ("track", "album", "playlist", "artist")
+# Spotify blanks most playlist hits for new developer apps (curated playlists come
+# back as nulls), so always fetch a full page and keep the real ones.
+SEARCH_PAGE = 10
+# need the one-time user login (spotify_user.py): your playlists, your Liked Songs
+USER_KINDS = ("my_playlist", "liked")
+ALL_KINDS = KINDS + USER_KINDS
 
 
 class SpeakerError(Exception):
@@ -92,10 +98,10 @@ class SpotifySearch:
         if kind not in KINDS:
             raise SpeakerError(f"kind must be one of {', '.join(KINDS)}")
         url = "https://api.spotify.com/v1/search?" + urllib.parse.urlencode(
-            {"q": query, "type": kind, "limit": max(1, min(limit, 10))})
+            {"q": query, "type": kind, "limit": SEARCH_PAGE})
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self._get_token()}"})
         items = self._fetch(req).get(f"{kind}s", {}).get("items", [])
-        return [_summarize(item, kind) for item in items if item]  # playlists can hold nulls
+        return [_summarize(i, kind) for i in items if i][:max(1, limit)]
 
     def __call__(self, query: str, kind: str = "track") -> str:
         results = self.search(query, kind, limit=1)
@@ -127,9 +133,11 @@ end tell"""
 class MacSpeakers:
     """Reads live state each call; `query` is whatever was last asked for."""
 
-    def __init__(self, osascript: Osascript = run_osascript, search: Search | None = None):
+    def __init__(self, osascript: Osascript = run_osascript, search: Search | None = None,
+                 library=None):
         self._osa = osascript
         self._search = search
+        self._library = library  # spotify_user.UserLibrary, or None before the login
         self._query = ""
 
     def _spotify_running(self) -> bool:
@@ -144,19 +152,32 @@ class MacSpeakers:
             playing = status == "playing"
         return {"playing": playing, "query": self._query, "volume": volume, "now_playing": track}
 
+    def _need_library(self):
+        if self._library is None:
+            raise SpeakerError("your playlists and Liked Songs need the one-time Spotify "
+                               "login: run jarvis-spotify-login")
+        return self._library
+
     def _resolve(self, query: str, kind: str = "track") -> str:
         uri = to_spotify_uri(query)
         if uri:
             return uri
+        if kind in USER_KINDS:
+            return self._need_library().resolve(query, kind)
         if self._search is None:
             raise SpeakerError("Spotify search is not set up (SPOTIFY_CLIENT_ID/SECRET); "
                                "only Spotify links can be played")
         return self._search(query, kind)
 
     def search(self, query: str, kind: str = "track", limit: int = 5) -> list[dict]:
-        if self._search is None or not hasattr(self._search, "search"):
+        if kind in USER_KINDS:
+            return self._need_library().search(query, kind, limit)
+        if self._search is None:
             raise SpeakerError("Spotify search is not set up (SPOTIFY_CLIENT_ID/SECRET)")
-        return self._search.search(query, kind, limit)  # type: ignore[attr-defined]
+        find = getattr(self._search, "catalog_search", None) or getattr(self._search, "search", None)
+        if find is None:
+            raise SpeakerError("Spotify search is not set up (SPOTIFY_CLIENT_ID/SECRET)")
+        return find(query, kind, limit)
 
     def apply(self, patch: dict) -> None:
         """Apply an already-validated patch: query, skip, shuffle, playing, volume.

@@ -53,8 +53,10 @@ read-only `now_playing` ("Track by Artist"). Its `speakers` also accept `kind`
 should find), `skip` (`"next"` / `"previous"`) and `shuffle` (bool). Albums,
 playlists and artists play as a whole. `GET /search?q=<text>&kind=<kind>&limit=<1-10>`
 returns the top matches as `[{"uri", "name", "by", "kind"}]`; play one by sending its
-`uri` as the `query`. Search covers public Spotify content; your own playlists and
-Liked Songs need a user login, which isn't wired up yet. If the Mac or Spotify fails a command
+`uri` as the `query`. Two more kinds need the one-time `jarvis-spotify-login`:
+`my_playlist` (your playlists, by name: substring, then close fuzzy match) and `liked`
+(your Liked Songs; any `q`). Spotify returns most curated playlists as nulls to new
+developer apps, so playlist search mostly finds user-made public playlists. If the Mac or Spotify fails a command
 it answers `502` with `{"error": "..."}`. `jarvis-room-stub` implements all four.
 
 A real implementation may add devices or fields; the agent discovers them via
