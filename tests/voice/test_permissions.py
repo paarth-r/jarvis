@@ -77,6 +77,54 @@ def test_fail_closed_and_mcp_rules(vault):
         assert classify_tool(name, inp, vault) == want, (name, inp)
 
 
+def test_round2_rules(vault):
+    cal = "mcp__claude_ai_Google_Calendar__"
+    cases = [
+        (cal + "create_event", {"attendeeEmails": ["a@b.c"]}, "confirm"),
+        (cal + "update_event", {"addedAttendees": [{"email": "a@b.c"}]}, "confirm"),
+        (cal + "update_event", {"addedAttendeeEmails": "a@b.c"}, "confirm"),
+        (cal + "create_event", {"summary": "tennis"}, "allow"),
+        (cal + "list_events", {}, "allow"),
+        ("mcp__claude-in-chrome__computer", {}, "confirm"),
+        ("mcp__claude-in-chrome__javascript_tool", {}, "confirm"),
+        ("mcp__claude-in-chrome__form_input", {}, "confirm"),
+        ("mcp__claude-in-chrome__file_upload", {}, "confirm"),
+        ("mcp__notion__notion-update-page", {}, "confirm"),
+        ("mcp__notion__notion-move-pages", {}, "confirm"),
+        ("mcp__claude_ai_Google_Drive__update_file", {}, "confirm"),
+        ("mcp__claude_ai_Google_Drive__create_file", {}, "confirm"),
+        ("mcp__claude_ai_Gmail__search_threads", {}, "allow"),
+        ("mcp__claude_ai_Google_Drive__download_file_content", {}, "allow"),
+        ("mcp__notion__notion-fetch", {}, "allow"),
+        ("mcp__notion__notion-list-shared-pages", {}, "confirm"),
+        ("mcp__room__anything", {}, "allow"),
+    ]
+    for name, inp, want in cases:
+        assert classify_tool(name, inp, vault) == want, (name, inp)
+    for sub in (".GIT/config", ".Claude/x", "CLAUDE.md", "claude.local.md", ".MCP.json"):
+        assert classify_tool("Write", {"file_path": str(vault / sub)}, vault) == "confirm", sub
+    assert classify_tool("Write", {"file_path": str(vault / "wiki" / "CLAUDE.md")}, vault) == "allow"
+
+
+def test_round2_readbacks():
+    g = describe_action(
+        "mcp__claude_ai_Gmail__send_message",
+        {"to": ["a@x.com"], "cc": ["c@x.com"], "bcc": ["b@x.com"], "subject": "Hi", "replyAll": True},
+    )
+    assert "a@x.com" in g and "c@x.com" in g and "and blind copy to b@x.com" in g
+    assert "reply all" in g.lower()
+    d = describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1", "subject": "Plans"})
+    assert d == "Send your saved draft with subject Plans?"
+    assert describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1"}) == "Send your saved draft?"
+    b = describe_action("Bash", {"command": "echo a\nrm -rf x"})
+    assert "echo a then rm" in b
+    s = describe_action(
+        "mcp__claude_ai_Google_Drive__share_file",
+        {"fileId": "f1", "emailAddress": "z@x.com", "chatSpaceId": "sp", "role": "writer"},
+    )
+    assert "z@x.com" in s and "a chat space" in s and "writer" in s
+
+
 def test_path_edge_cases(vault, tmp_path, monkeypatch):
     assert classify_tool("Write", {"file_path": "a\x00b"}, vault) == "confirm"
     for sub in (".claude/hooks/x.sh", ".git/hooks/pre-commit", ".obsidian/app.json"):
@@ -109,7 +157,7 @@ def test_describe_targets():
     assert "chat42" in m and "hello" in m
     e = describe_action("mcp__claude_ai_Google_Calendar__create_event", {"summary": "Standup", "attendees": ["a", "b"]})
     assert "Standup" in e and "2 attendees" in e
-    s = describe_action("mcp__claude_ai_Google_Drive__share_file", {"file_id": "f1", "email": "z@x.com"})
+    s = describe_action("mcp__claude_ai_Google_Drive__share_file", {"fileId": "f1", "emailAddress": "z@x.com"})
     assert "z@x.com" in s
     assert len(describe_action("mcp__claude_ai_Gmail__send_message", {"to": "a", "subject": "s" * 300})) < 200
 

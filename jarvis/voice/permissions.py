@@ -15,12 +15,16 @@ SAFE_BUILTINS = {
 }
 PATH_CHECKED_WRITERS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 PROTECTED_DIRS = {".claude", ".git", ".obsidian"}
+PROTECTED_ROOT_FILES = {"claude.md", "claude.local.md", ".mcp.json"}
 CONFIRM_MCP_SUBSTRINGS = (
     "send", "reply", "forward", "share", "delete", "trash",
     "respond_to_event", "cancel", "spawn", "comment",
 )
 CALENDAR_WRITES = ("create_event", "update_event")
-ATTENDEE_KEYS = {"attendees", "guests"}
+READ_ONLY_VERBS = (
+    "list", "get", "search", "read", "query", "fetch", "find", "status",
+    "check", "download", "export",
+)
 AFFIRMATIVES = {
     "yes", "yeah", "yep", "yes please", "do it", "send it", "go ahead",
     "confirm", "yes send it", "yes do it",
@@ -40,19 +44,32 @@ def _inside(path_str: object, vault: Path) -> bool:
         return False
     if not target.is_relative_to(root):
         return False
-    return not (set(target.relative_to(root).parts) & PROTECTED_DIRS)
+    parts = [part.lower() for part in target.relative_to(root).parts]
+    if set(parts) & PROTECTED_DIRS:
+        return False
+    return not (parts and parts[0] in PROTECTED_ROOT_FILES)
+
+
+def _is_attendee_key(key: object) -> bool:
+    lowered = str(key).lower()
+    return "attendee" in lowered or "guest" in lowered
 
 
 def _has_attendees(value: object) -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ATTENDEE_KEYS and isinstance(item, (list, tuple)) and item:
+            if _is_attendee_key(key) and item:
                 return True
             if _has_attendees(item):
                 return True
     elif isinstance(value, (list, tuple)):
         return any(_has_attendees(i) for i in value)
     return False
+
+
+def _tool_part(norm: str) -> str:
+    """Part of a normalized MCP name after the server prefix."""
+    return norm.split("__", 2)[-1]
 
 
 def classify_tool(
@@ -78,9 +95,14 @@ def classify_tool(
         ):
             return "allow"
         return "confirm"
-    if any(s in norm for s in CALENDAR_WRITES) and _has_attendees(tool_input):
-        return "confirm"
-    return "allow"
+    tool = _tool_part(norm)
+    if norm.startswith("mcp__room__") or "create_draft" in tool:
+        return "allow"
+    if any(s in tool for s in CALENDAR_WRITES):
+        return "confirm" if _has_attendees(tool_input) else "allow"
+    if any(v in tool for v in READ_ONLY_VERBS):
+        return "allow"
+    return "confirm"
 
 
 def too_long_to_confirm(name: str, tool_input: dict) -> bool:
@@ -105,7 +127,8 @@ _SYMBOL_RE = re.compile("|".join(re.escape(k) for k in _SYMBOL_WORDS))
 
 
 def _speakable_command(command: str) -> str:
-    text = _SYMBOL_RE.sub(lambda m: _SYMBOL_WORDS[m.group(0)], command)
+    lines = [ln for ln in re.split(r"[\r\n]+", command) if ln.strip()]
+    text = " then ".join(_SYMBOL_RE.sub(lambda m: _SYMBOL_WORDS[m.group(0)], ln) for ln in lines)
     return " ".join(text.split())
 
 
@@ -131,8 +154,8 @@ def _count_attendees(value: object) -> int:
     n = 0
     if isinstance(value, dict):
         for key, item in value.items():
-            if key in ATTENDEE_KEYS and isinstance(item, (list, tuple)):
-                n += len(item)
+            if _is_attendee_key(key) and item:
+                n += len(item) if isinstance(item, (list, tuple, dict)) else 1
             else:
                 n += _count_attendees(item)
     elif isinstance(value, (list, tuple)):
@@ -157,6 +180,31 @@ def _find_key(value: object, keys: tuple[str, ...]) -> object:
     return None
 
 
+def _describe_gmail(tool_input: dict) -> str:
+    to = tool_input.get("to")
+    subject = tool_input.get("subject")
+    if tool_input.get("draftId") and not (to or tool_input.get("cc") or tool_input.get("bcc")):
+        tail = f" with subject {_clip(subject)}" if subject else ""
+        return f"Send your saved draft{tail}?"
+    verb = "Reply all" if tool_input.get("replyAll") else "Send an email"
+    text = f"{verb} to {_people(to)}"
+    if tool_input.get("cc"):
+        text += f", copying {_people(tool_input['cc'])}"
+    if tool_input.get("bcc"):
+        text += f", and blind copy to {_people(tool_input['bcc'])}"
+    return f"{text} with subject {_clip(subject or 'no subject')}?"
+
+
+def _describe_share(tool_input: dict) -> str:
+    file_id = tool_input.get("fileId") or tool_input.get("file_id") or "a file"
+    who = tool_input.get("emailAddress")
+    if tool_input.get("chatSpaceId"):
+        who = "a chat space" if not who else f"{_people(who)} and a chat space"
+    role = tool_input.get("role")
+    tail = f" as {_clip(role)}" if role else ""
+    return f"Share {_clip(file_id)} with {_people(who)}{tail}?"
+
+
 def describe_action(name: str, tool_input: dict) -> str:
     if name == "Bash":
         return f"Run the shell command: {_speakable_command(str(tool_input.get('command', '')))}?"
@@ -167,16 +215,12 @@ def describe_action(name: str, tool_input: dict) -> str:
     norm = name.lower().replace("-", "_")
     if norm.startswith("mcp__"):
         if "gmail" in norm and ("send" in norm or "forward" in norm or "reply" in norm):
-            to = _people(tool_input.get("to"))
-            subject = _clip(tool_input.get("subject", "no subject"))
-            return f"Send an email to {to} with subject {subject}?"
+            return _describe_gmail(tool_input)
         if "imessage" in norm and norm.endswith("reply"):
             target = tool_input.get("chat_id") or tool_input.get("recipient") or "unknown chat"
             return f"Send a text message to {_clip(target)}: {_clip(tool_input.get('text', ''))}?"
         if "share" in norm:
-            target = _find_key(tool_input, ("email", "emailAddress", "email_address", "to", "user", "target"))
-            file_id = tool_input.get("file_id") or tool_input.get("fileId") or "a file"
-            return f"Share {_clip(file_id)} with {_people(target)}?"
+            return _describe_share(tool_input)
         if any(s in norm for s in CALENDAR_WRITES) or "respond_to_event" in norm:
             title = _find_key(tool_input, ("summary", "title")) or "an event"
             count = _count_attendees(tool_input)
