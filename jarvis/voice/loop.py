@@ -28,6 +28,11 @@ CONFIRM_TIMEOUT_S = 6
 MUTE_TAIL_S = 0.3
 NEW_CONVERSATION = "new conversation"
 
+# What the conversation does after an utterance.
+FOLLOWUP = "followup"  # answered: open the follow-up window
+WAKE_ONLY = "wake"  # only the wake phrase was heard
+IDLE = "idle"  # nothing to do, or the turn failed
+
 
 def _normalize(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", "", text.lower()).split())
@@ -50,6 +55,7 @@ class VoiceLoop:
         self._audio_lock = asyncio.Lock()
         self._working: asyncio.Task[None] | None = None
         self._said: list[str] = []
+        self._turn_active = False
 
     # -- main loop ---------------------------------------------------------
 
@@ -63,8 +69,8 @@ class VoiceLoop:
                 return
             try:
                 await self._conversation()
-            except Exception:
-                traceback.print_exc(file=sys.stderr)
+            except Exception as exc:
+                await self._fail(exc)
 
     async def _wait_for_wake(self, frames: AsyncIterator[np.ndarray]) -> bool:
         async for frame in frames:
@@ -78,33 +84,46 @@ class VoiceLoop:
         await self._tone("wake")
         self._set("LISTEN")
         audio = await self._record(LISTEN_TIMEOUT_S)
+        in_followup = False
         while audio is not None:
-            if not await self._process(audio):
+            outcome = await self._process(audio)
+            if outcome == WAKE_ONLY and in_followup:
+                # "Hey Jarvis" alone in the follow-up window is a fresh wake.
+                await self._tone("wake")
+                self._set("LISTEN")
+                audio = await self._record(LISTEN_TIMEOUT_S)
+                in_followup = False
+                continue
+            if outcome != FOLLOWUP:
                 return
             self._set("FOLLOWUP")
             audio = await self._record(self.cfg.followup_s)
+            in_followup = True
 
     async def handle_turn(self, audio: np.ndarray) -> None:
         """Transcribe one utterance and answer it (exposed for tests)."""
         await self._process(audio)
 
-    async def _process(self, audio: np.ndarray) -> bool:
-        """Handle one utterance. True when the follow-up window should open."""
+    async def _process(self, audio: np.ndarray) -> str:
+        """Handle one utterance; return FOLLOWUP, WAKE_ONLY or IDLE (what next)."""
         self._set("STT")
         try:
             transcript = await asyncio.to_thread(self.stt.transcribe, audio)
-            self.log.archive_utterance(audio, transcript)
         except Exception as exc:
             await self._fail(exc)
-            return False
+            return IDLE
+        self._archive(audio, transcript)
         text = strip_wake_phrase(transcript) if transcript else ""
         if not text:
-            return False
+            return WAKE_ONLY if transcript else IDLE
 
         self._said = []
-        followup = True
+        outcome = FOLLOWUP
+        self._turn_active = True
         try:
             self._set("THINK")
+            # Timer starts before maybe_reset so a slow reconnect counts too.
+            self._working = asyncio.create_task(self._working_tone())
             await self.brain.maybe_reset()
             if _normalize(text) == NEW_CONVERSATION:
                 await self.brain.reset()
@@ -112,19 +131,26 @@ class VoiceLoop:
             else:
                 await self._answer(text)
         except Exception as exc:
-            followup = False
+            outcome = IDLE
             await self._fail(exc)
         finally:
+            self._turn_active = False
             await self._stop_working_tone()
         try:
             self.log.log_turn(text, " ".join(self._said))
         except Exception:
             traceback.print_exc(file=sys.stderr)
-        return followup
+        return outcome
+
+    def _archive(self, audio: np.ndarray, transcript: str | None) -> None:
+        """Archive an utterance; a disk failure is logged, never fails the turn."""
+        try:
+            self.log.archive_utterance(audio, transcript)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
 
     async def _answer(self, text: str) -> None:
         splitter = SentenceSplitter()
-        self._working = asyncio.create_task(self._working_tone())
         async for delta in self.brain.ask(text):
             for sentence in splitter.feed(delta):
                 await self._say(sentence)
@@ -155,6 +181,10 @@ class VoiceLoop:
         question has been asked and answered. If the brain cancels it (turn
         timeout), playback is stopped and the cancellation re-raised.
         """
+        if not self._turn_active:
+            # A stray callback outside a turn must never drive the shared
+            # frames iterator alongside the IDLE wake detector.
+            return False
         await self._stop_working_tone()
         try:
             async with self._audio_lock:
@@ -163,7 +193,7 @@ class VoiceLoop:
                 transcript = None
                 if audio is not None:
                     transcript = await asyncio.to_thread(self.stt.transcribe, audio)
-                    self.log.archive_utterance(audio, transcript)
+                    self._archive(audio, transcript)
                 answer = strip_wake_phrase(transcript) if transcript else None
                 approved = is_affirmative(answer)
                 if not approved:

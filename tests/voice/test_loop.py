@@ -242,6 +242,7 @@ async def test_no_working_tone_when_fast():
 
 async def test_confirm_declines_on_unclear():
     loop, d = make([AUDIO], ["yes no wait"], FakeBrain())
+    loop._turn_active = True
     assert await loop.confirm("Send the email to Sam?") is False
     assert d.player.played == ["Send the email to Sam?", "Cancelled."]
     assert all(d.player.muted_flags)
@@ -251,12 +252,14 @@ async def test_confirm_declines_on_unclear():
 
 async def test_confirm_accepts_affirmative():
     loop, d = make([AUDIO], ["Yes."], FakeBrain())
+    loop._turn_active = True
     assert await loop.confirm("Send it?") is True
     assert d.player.played == ["Send it?"]
 
 
 async def test_confirm_silence_cancels():
     loop, d = make([], [], FakeBrain())
+    loop._turn_active = True
     assert await loop.confirm("Send it?") is False
     assert d.player.played == ["Send it?", "Cancelled."]
 
@@ -322,6 +325,7 @@ async def test_confirm_waits_for_sentence_in_progress():
     d.player = loop.player = EventPlayer(d.mic)
     speaking = asyncio.create_task(loop._say("First sentence."))
     await asyncio.sleep(0.005)  # the sentence is now mid-play
+    loop._turn_active = True
     assert await loop.confirm("Send it?") is True
     await speaking
     assert d.player.events == ["start:First sentence.", "end:First sentence.",
@@ -348,6 +352,7 @@ async def test_cancelled_confirm_releases_lock():
     d.player = loop.player = EventPlayer(d.mic)
     recorder = BlockingRecorder([])
     loop.recorder = recorder
+    loop._turn_active = True
     task = asyncio.create_task(loop.confirm("Send it?"))
     await recorder.blocked.wait()
     task.cancel()
@@ -361,3 +366,76 @@ async def test_cancelled_confirm_releases_lock():
     assert not loop._audio_lock.locked()
     await asyncio.wait_for(loop.handle_turn(AUDIO), timeout=1)
     assert d.player.played[-1] == "Still here."
+
+
+async def test_wake_phrase_alone_in_followup_relistens():
+    brain = FakeBrain([["Report is due."], ["Nothing tomorrow."]])
+    loop, d = make([AUDIO, AUDIO, AUDIO], ["what's due", "Hey Jarvis.", "and tomorrow"], brain)
+    await loop.run()
+    assert d.player.played.count("tone:wake") == 2
+    assert d.recorder.timeouts == [6, 8.0, 6, 8.0]
+    assert brain.asked == ["what's due", "and tomorrow"]
+
+
+async def test_archive_failure_does_not_fail_turn():
+    brain = FakeBrain([["Sure."]])
+    loop, d = make([], ["do it"], brain)
+
+    def broken(audio, transcript):
+        raise OSError("disk full")
+
+    d.log.archive_utterance = broken
+    await loop.handle_turn(AUDIO)
+    assert brain.asked == ["do it"]
+    assert d.player.played == ["Sure."]
+
+
+async def test_confirm_outside_a_turn_returns_false_immediately():
+    loop, d = make([AUDIO], ["yes"], FakeBrain())
+    assert await loop.confirm("Send it?") is False
+    assert d.player.played == []
+    assert d.recorder.timeouts == []
+
+
+class SlowResetBrain(FakeBrain):
+    async def maybe_reset(self) -> None:
+        await asyncio.sleep(0.1)
+
+
+async def test_working_tone_counts_slow_reconnect():
+    cfg = SimpleNamespace(followup_s=8.0, working_tone_after_s=0.01)
+    loop, d = make([AUDIO], ["slow reconnect"], SlowResetBrain([["Done."]]), cfg=cfg)
+    await loop.run()
+    assert d.player.played == ["tone:wake", "tone:working", "Done."]
+
+
+class ExplodingRecorder(FakeRecorder):
+    async def record(self, frames, start_timeout_s):
+        self.timeouts.append(start_timeout_s)
+        raise OSError("mic gone")
+
+
+async def test_recorder_exception_plays_error_and_loop_continues():
+    loop, d = make([], [], FakeBrain(), wakes=2)
+    loop.recorder = ExplodingRecorder([])
+    await loop.run()
+    assert d.player.played == ["tone:wake", "tone:error", "Sorry, something broke: OSError.",
+                               "tone:wake", "tone:error", "Sorry, something broke: OSError."]
+
+
+class SpeakThenTimeoutBrain(FakeBrain):
+    async def ask(self, text):
+        self.asked.append(text)
+        yield "First part. "
+        yield "More"
+        raise BrainTimeout("slow")
+
+
+async def test_timeout_after_a_spoken_sentence():
+    brain = SpeakThenTimeoutBrain()
+    loop, d = make([AUDIO, AUDIO], ["long job"], brain)
+    await loop.run()
+    assert d.player.played == ["tone:wake", "First part.", "tone:error",
+                               "Sorry, that took too long."]
+    assert d.recorder.timeouts == [6]  # straight to IDLE, no follow-up window
+    assert d.log.turns == [("long job", "First part. Sorry, that took too long.")]
