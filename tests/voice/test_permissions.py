@@ -140,8 +140,8 @@ def test_round2_readbacks():
     )
     assert c.endswith("with 1 attendee?")
     assert describe_action("mcp__claude_ai_Gmail__send_message", {"draftId": "d1"}) == "Send your saved draft?"
-    b = describe_action("Bash", {"command": "echo a\nrm -rf x"})
-    assert "echo a then rm" in b
+    b = describe_action("Bash", {"command": "echo a\nrm -rf x", "description": "Remove the x folder"})
+    assert b == "I'd like to remove the x folder. Okay?"
     s = describe_action(
         "mcp__claude_ai_Google_Drive__share_file",
         {"fileId": "f1", "emailAddress": "z@x.com", "chatSpaceId": "sp", "role": "writer"},
@@ -168,10 +168,8 @@ def test_too_long_and_bash_readback():
     assert not too_long_to_confirm("Bash", {"command": "x" * 200})
     assert too_long_to_confirm("Bash", {"command": "x" * 201})
     assert not too_long_to_confirm("Write", {"command": "x" * 500})
-    out = describe_action("Bash", {"command": "cat ~/a* | grep x > o.txt && rm b; ls >> l"})
-    for word in ("home", "star", "pipe", "redirect to", "and then", "then", "append to"):
-        assert word in out
-    assert not any(c in out for c in "|>&;*~")
+    # A long command with a description is approved from the description.
+    assert not too_long_to_confirm("Bash", {"command": "x" * 500, "description": "Clean the cache"})
 
 
 def test_describe_targets():
@@ -209,10 +207,13 @@ def test_describe_gmail():
     assert out == "Send an email to bob@example.com with subject Lunch?"
 
 
-def test_describe_bash_truncates_and_is_speakable():
-    out = describe_action("Bash", {"command": "echo " + "x" * 150})
-    assert out.startswith("Run the shell command: echo ")
-    assert "`" not in out and "*" not in out
+def test_describe_bash_speaks_the_request_not_the_command():
+    cmd = "cat ~/a* | grep x > o.txt && rm -rf ~/old_logs"
+    out = describe_action("Bash", {"command": cmd, "description": "Delete the old logs folder."})
+    assert out == "I'd like to delete the old logs folder. Okay?"
+    assert describe_action("Bash", {"command": cmd}) == "I'd like to run a shell command. Okay?"
+    for part in ("rm", "grep", "~", "|", "old_logs"):
+        assert part not in describe_action("Bash", {"command": cmd})
 
 
 def test_describe_fallbacks():

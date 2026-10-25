@@ -134,10 +134,15 @@ def classify_tool(
 def too_long_to_confirm(name: str, tool_input: dict) -> bool:
     """True when the action cannot be read back in full.
 
-    Bash commands over 200 chars, or any spoken read-back over 300 chars
-    (e.g. a 200-address recipient list), are too long to approve by voice.
+    Bash commands over 200 chars with no description to speak, or any spoken
+    read-back over 300 chars (e.g. a 200-address recipient list), are too long
+    to approve by voice.
     """
-    if name == "Bash" and len(str(tool_input.get("command", ""))) > MAX_BASH_CONFIRM:
+    if (
+        name == "Bash"
+        and not _bash_description(tool_input)
+        and len(str(tool_input.get("command", ""))) > MAX_BASH_CONFIRM
+    ):
         return True
     try:
         return len(describe_action(name, tool_input)) > MAX_READBACK
@@ -152,19 +157,13 @@ def is_affirmative(transcript: str | None) -> bool:
     return " ".join(text.split()) in AFFIRMATIVES
 
 
-_SYMBOL_WORDS = {
-    "&&": " and then ", "||": " or ", ">>": " append to ", "|": " pipe ",
-    ">": " redirect to ", "<": " read from ", ";": " then ", "*": " star ",
-    "~": " home ", "`": " backtick ", "$": " dollar ", "&": " ampersand ",
-    "#": " hash ", "\\": " backslash ",
-}
-_SYMBOL_RE = re.compile("|".join(re.escape(k) for k in _SYMBOL_WORDS))
+def _bash_description(tool_input: dict) -> str:
+    """Claude's plain-English summary of a shell command, ready to speak.
 
-
-def _speakable_command(command: str) -> str:
-    lines = [ln for ln in re.split(r"[\r\n]+", command) if ln.strip()]
-    text = " then ".join(_SYMBOL_RE.sub(lambda m: _SYMBOL_WORDS[m.group(0)], ln) for ln in lines)
-    return " ".join(text.split())
+    The command itself is never read aloud; the request is phrased from this.
+    """
+    text = _clip(tool_input.get("description") or "", 120).strip().rstrip(".")
+    return text[:1].lower() + text[1:] if text else ""
 
 
 def _clip(value: object, limit: int = MAX_SPOKEN) -> str:
@@ -334,7 +333,8 @@ def _describe_notion_calendar(norm: str, tool_input: dict) -> str:
 
 def describe_action(name: str, tool_input: dict) -> str:
     if name == "Bash":
-        return f"Run the shell command: {_speakable_command(str(tool_input.get('command', '')))}?"
+        desc = _bash_description(tool_input)
+        return f"I'd like to {desc}. Okay?" if desc else "I'd like to run a shell command. Okay?"
     if name in PATH_CHECKED_WRITERS:
         path = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
         verb = "Write" if name == "Write" else "Edit"

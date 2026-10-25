@@ -145,6 +145,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr,
                         format="[voice] %(name)s %(levelname)s %(message)s")
     logging.getLogger("jarvis").setLevel(logging.INFO)
+    # Kokoro's phonemizer warns on every sentence about word-count mismatches;
+    # harmless. It resets its own level on each call, so filter instead.
+    logging.getLogger("phonemizer").addFilter(lambda r: r.levelno >= logging.ERROR)
     cfg = resolve_paths(
         load_config(resolve_config_path(args.config), resolve_config_path(args.local)))
     room = not args.no_room

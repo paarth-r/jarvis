@@ -49,13 +49,18 @@ VOICE_PROMPT = (
     "would. If the answer is long (a plan, a diff, a table, more than about four "
     "sentences), write it to the wiki or send it to the user's phone over iMessage, "
     "then say in one sentence where you put it. Room devices are controlled with "
-    "the room tools."
+    "the room tools. Never read out commands, code, file paths or tool names. Some "
+    "actions need the user's spoken approval, and they hear a request, not a command: "
+    "whenever you run a shell command, give the Bash tool a short plain-English "
+    "description of the change (for example 'delete the old logs folder'), because "
+    "that description is what they are asked to approve."
 )
 DECLINED = "Declined by voice."
 NO_CONFIRM = "No voice confirmation is available, so this action was not run."
 TOO_LONG = (
-    "That action is too long to confirm by voice. If it is a shell command, split "
-    "it into shorter commands or write it to a script in the vault and run that; "
+    "That action is too long to confirm by voice. If it is a shell command, give "
+    "the Bash tool a short plain-English description of the change, or split it "
+    "into shorter commands; "
     "otherwise make it smaller, for example fewer recipients."
 )
 POLICY_ERROR = "The voice permission check failed, so this action was not run."
