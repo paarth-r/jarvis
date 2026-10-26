@@ -138,7 +138,7 @@ class FakeLog:
         self.archived.append(transcript)
 
 
-CFG = SimpleNamespace(followup_s=8.0, working_tone_after_s=3.0)
+CFG = SimpleNamespace(followup_s=8.0, working_tone_after_s=3.0, address_as="sir")
 AUDIO = np.ones(1600, dtype=np.int16)
 
 
@@ -561,3 +561,38 @@ async def test_claude_reading_a_brush_off_ends_the_conversation():
     await loop.run()
     assert brain.asked == ["eh actually it's fine"]
     assert d.recorder.timeouts == [6]  # no follow-up window opened
+
+
+@pytest.mark.parametrize("phrase", ["Thank you.", "thanks jarvis", "Sounds good.", "cool, thanks",
+                                    "perfect thank you so much", "alright that's all", "got it"])
+async def test_closing_phrase_in_followup_ends_it(phrase):
+    brain = FakeBrain([["Report is due."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO, AUDIO], ["what's due", phrase, "never heard"], brain)
+    await loop.run()
+    assert brain.asked == ["what's due"]
+    assert d.recorder.timeouts == [6, 8.0]  # no second follow-up window
+    thanked = "thank" in phrase.lower()
+    assert d.player.played == ["tone:wake", "Report is due."] + (["You're welcome, sir."] if thanked else [])
+
+
+async def test_closing_words_inside_a_request_go_to_claude():
+    brain = FakeBrain([["Report is due."], ["Playing."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO], ["what's due", "thanks, now play some lofi"], brain)
+    await loop.run()
+    assert brain.asked == ["what's due", "thanks, now play some lofi"]
+
+
+async def test_sounds_good_after_a_question_goes_to_claude():
+    # "sounds good" answers "Want me to set a timer?"; it is not a goodbye.
+    brain = FakeBrain([["Want me to set a timer?"], ["Timer set."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO], ["remind me in ten", "sounds good"], brain)
+    await loop.run()
+    assert brain.asked == ["remind me in ten", "sounds good"]
+
+
+async def test_claude_youre_welcome_ends_the_conversation():
+    brain = FakeBrain([["Report is due."], ["You're welcome, sir."], ["unused"]])
+    loop, d = make([AUDIO, AUDIO, AUDIO], ["what's due", "cheers mate, lovely stuff", "never"], brain)
+    await loop.run()
+    assert brain.asked == ["what's due", "cheers mate, lovely stuff"]
+    assert d.recorder.timeouts == [6, 8.0]

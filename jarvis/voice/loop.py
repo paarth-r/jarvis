@@ -34,8 +34,21 @@ CANCEL_PHRASES = {"nevermind", "never mind", "cancel", "stop", "forget it", "tha
 # Short utterances containing one of these are a cancel too ("ah nevermind then").
 CANCEL_WORDS = ("nevermind", "never mind", "forget it", "forget about it", "cancel that")
 CANCEL_MAX_WORDS = 6
-# Claude is told to answer a vaguer brush-off with just "Okay."; that ends it too.
-DISMISSED_REPLIES = {"okay", "okay sir", "ok", "ok sir"}
+# Claude is told to answer a vaguer brush-off with just "Okay." and thanks with
+# "You're welcome."; either reply ends the conversation too.
+DISMISSED_REPLIES = {"okay", "okay sir", "ok", "ok sir", "youre welcome", "youre welcome sir"}
+# An utterance made only of these (and filler) is a goodbye: "thanks", "sounds good".
+CLOSING_PHRASES = (
+    "thank you", "thanks", "thank u", "thx", "ty", "appreciate it", "sounds good",
+    "sounds great", "got it", "cool", "perfect", "great", "awesome", "nice", "sweet",
+    "bet", "alright", "all right", "okay", "ok", "cheers", "bye", "goodbye", "good night",
+    "goodnight", "thats all", "thats it", "that is all", "im good", "all good", "were good",
+    "love it", "nice one",
+)
+CLOSING_FILLER = {"jarvis", "claude", "hey", "sir", "man", "bro", "dude", "so", "much",
+                  "very", "a", "lot", "then", "yeah", "yep", "and", "for", "that", "now"}
+_CLOSING = re.compile(r"\b(" + "|".join(sorted(map(re.escape, CLOSING_PHRASES), key=len,
+                                               reverse=True)) + r")\b")
 
 
 def _is_cancel(text: str) -> bool:
@@ -43,6 +56,13 @@ def _is_cancel(text: str) -> bool:
     if norm in CANCEL_PHRASES:
         return True
     return len(norm.split()) <= CANCEL_MAX_WORDS and any(w in norm for w in CANCEL_WORDS)
+
+
+def _is_closing(text: str) -> bool:
+    """Only thanks / sounds good / that's all, with filler: the conversation is over."""
+    norm = _normalize(text)
+    rest, found = _CLOSING.subn(" ", norm)
+    return found > 0 and all(w in CLOSING_FILLER for w in rest.split())
 
 # What the conversation does after an utterance.
 FOLLOWUP = "followup"  # answered: open the follow-up window
@@ -137,6 +157,17 @@ class VoiceLoop:
         if _is_cancel(text):
             await self._say("Okay.")
             self._log_turn(text, "Okay.")
+            return IDLE
+        # A goodbye ends the follow-up, unless it answers a question we just asked
+        # ("Want me to set a timer?" "Sounds good."): that goes to Claude.
+        asked = " ".join(self._said).rstrip().endswith("?")
+        if _is_closing(text) and not asked:
+            reply = ""
+            if "thank" in _normalize(text):
+                sir = getattr(self.cfg, "address_as", "")
+                reply = f"You're welcome, {sir}." if sir else "You're welcome."
+                await self._say(reply)
+            self._log_turn(text, reply)
             return IDLE
 
         self._said = []
