@@ -177,6 +177,15 @@ fan, window, thermostat and speakers for testing. `jarvis-voice --list-devices` 
 loads every model and builds the session config, then prints `ok` and exits. State
 transitions are logged to stderr as `[voice] IDLE -> LISTEN`.
 
+### Spotify from the command line
+
+`jarvis-dj` drives the same speakers and library without the room server, printing
+JSON, so any script or Claude session can DJ: `jarvis-dj play "gym" --kind my_playlist`,
+`jarvis-dj play --kind liked`, `jarvis-dj top --range short`, `jarvis-dj recent`,
+`jarvis-dj playlists`, `jarvis-dj search "<q>" --kind artist`, `pause`, `resume`,
+`next`, `prev`, `shuffle on`, `volume 40`, `now`. There is no queue: the desktop app's
+AppleScript can only start a track, album, playlist or artist.
+
 ### Terminal trace
 
 Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),

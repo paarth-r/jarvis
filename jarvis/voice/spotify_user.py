@@ -88,6 +88,23 @@ class UserLibrary:
             raise SpeakerError(f"no Spotify {kind} found for '{query}'")
         return hits[0]["uri"]
 
+    def top(self, kind: str = "tracks", time_range: str = "short_term", limit: int = 10) -> list[dict]:
+        """Your most played tracks or artists over short/medium/long_term."""
+        from jarvis.voice.mac_speakers import _summarize
+
+        fetch = (self._sp.current_user_top_artists if kind == "artists"
+                 else self._sp.current_user_top_tracks)
+        page = fetch(limit=limit, time_range=time_range)
+        return [_summarize(i, kind.rstrip("s")) for i in page.get("items", []) if i]
+
+    def recent(self, limit: int = 10) -> list[dict]:
+        """Your recently played tracks, newest first."""
+        from jarvis.voice.mac_speakers import _summarize
+
+        page = self._sp.current_user_recently_played(limit=limit)
+        return [{**_summarize(i["track"], "track"), "played_at": i.get("played_at", "")}
+                for i in page.get("items", []) if i and i.get("track")]
+
     def liked_uri(self) -> str:
         return f"spotify:user:{self._user_id()}:collection"
 
