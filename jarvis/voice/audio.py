@@ -79,12 +79,21 @@ class Player:
 
     Opening and closing a stream per clip drops whatever the output device is
     still buffering (soundbars, AirPlay, Bluetooth), which clips the last word
-    of every sentence. The stream stays open and is fed from a buffer instead.
+    of every sentence. The stream stays open and is fed from a buffer instead,
+    and closes after `idle_close_s` of silence so an idle assistant costs nothing.
+
+    The stream runs at the device's own rate and clips are resampled here: a
+    24 kHz stream makes coreaudiod resample in real time (~17% CPU measured),
+    which makes all system audio crackle.
     """
 
-    def __init__(self, device: int | str | None = None, stream_factory=None) -> None:
+    def __init__(self, device: int | str | None = None, stream_factory=None,
+                 device_rate: int | None = None, idle_close_s: float = 30.0) -> None:
         self._device = device
         self._factory = stream_factory or sd.OutputStream
+        self._device_rate = device_rate
+        self._idle_close_s = idle_close_s
+        self._idle: asyncio.TimerHandle | None = None
         self._stream = None
         self._sr: int | None = None
         self._lock = threading.Lock()
@@ -102,10 +111,16 @@ class Player:
             if self._pos >= len(self._buf):
                 self._drained.set()
 
+    def _rate(self) -> int:
+        if self._device_rate is None:
+            info = sd.query_devices(self._device, "output")
+            self._device_rate = int(info["default_samplerate"])
+        return self._device_rate
+
     def _ensure_stream(self, sr: int) -> None:
         if self._stream is not None and self._sr == sr:
             return
-        self.close()
+        self._close_stream()
         self._stream = self._factory(samplerate=sr, channels=1, dtype="float32",
                                      device=self._device, callback=self._callback)
         self._stream.start()
@@ -116,18 +131,33 @@ class Player:
         if data.dtype == np.int16:
             data = data.astype(np.float32) / 32768.0
         data = data.astype(np.float32).reshape(-1)
-        self._ensure_stream(sr)
+        rate = self._rate()
+        if rate != sr:
+            from math import gcd
+
+            from scipy.signal import resample_poly
+
+            g = gcd(rate, sr)
+            data = resample_poly(data, rate // g, sr // g).astype(np.float32)
+        if self._idle is not None:
+            self._idle.cancel()
+            self._idle = None
+        self._ensure_stream(rate)
         with self._lock:
             self._buf, self._pos = data, 0
             self._drained.clear()
         try:
-            await asyncio.to_thread(self._drained.wait, len(data) / sr + 5.0)
+            await asyncio.to_thread(self._drained.wait, len(data) / rate + 5.0)
             # The device is still playing what it buffered; let it finish so the
             # mic's mute window covers the whole clip.
             await asyncio.sleep(float(getattr(self._stream, "latency", 0.0) or 0.0))
         except asyncio.CancelledError:
             self.stop()
             raise
+        finally:
+            if self._stream is not None:
+                self._idle = asyncio.get_running_loop().call_later(
+                    self._idle_close_s, self._close_stream)
 
     def stop(self) -> None:
         with self._lock:
@@ -135,6 +165,12 @@ class Player:
             self._drained.set()
 
     def close(self) -> None:
+        if self._idle is not None:
+            self._idle.cancel()
+            self._idle = None
+        self._close_stream()
+
+    def _close_stream(self) -> None:
         self.stop()
         if self._stream is not None:
             self._stream.stop()

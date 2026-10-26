@@ -139,7 +139,7 @@ async def test_player_plays_whole_clip_then_silence() -> None:
     from jarvis.voice import audio
 
     FakeStream.instances = []
-    player = audio.Player(stream_factory=FakeStream)
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
     clip = np.full(250, 16384, np.int16)  # 0.5 in float
     task = asyncio.create_task(player.play(clip, 24000))
     await _wait_until(lambda: FakeStream.instances)
@@ -156,7 +156,7 @@ async def test_player_reuses_one_stream_across_clips() -> None:
     from jarvis.voice import audio
 
     FakeStream.instances = []
-    player = audio.Player(stream_factory=FakeStream)
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
     for _ in range(3):
         task = asyncio.create_task(player.play(np.zeros(10, np.float32), 24000))
         await _wait_until(lambda: not player._drained.is_set())  # clip queued
@@ -172,7 +172,7 @@ async def test_player_cancel_stops_audio() -> None:
     from jarvis.voice import audio
 
     FakeStream.instances = []
-    player = audio.Player(stream_factory=FakeStream)
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
     task = asyncio.create_task(player.play(np.ones(24000, np.float32), 24000))
     await _wait_until(lambda: FakeStream.instances)
     FakeStream.instances[0].pull(100)
@@ -180,3 +180,53 @@ async def test_player_cancel_stops_audio() -> None:
     with pytest.raises(asyncio.CancelledError):
         await task
     assert np.allclose(FakeStream.instances[0].pull(100), 0.0)  # nothing left queued
+
+
+async def test_player_opens_at_device_rate_and_resamples() -> None:
+    # A 24 kHz stream makes coreaudiod resample in real time (~17% CPU), which
+    # crackles all system audio; the player converts to the device rate itself.
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=48000)
+    task = asyncio.create_task(player.play(np.full(2400, 0.5, np.float32), 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    stream = FakeStream.instances[0]
+    out = stream.pull(6000)
+    await asyncio.wait_for(task, 1)
+    assert stream.samplerate == 48000
+    assert np.count_nonzero(out) == 4800  # twice the samples, then silence
+    assert np.allclose(out[200:4600], 0.5, atol=0.01)
+
+
+async def test_player_closes_stream_when_idle_and_reopens() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000, idle_close_s=0.05)
+    for _ in range(2):
+        task = asyncio.create_task(player.play(np.ones(10, np.float32), 24000))
+        await _wait_until(lambda: not player._drained.is_set())
+        FakeStream.instances[-1].pull(64)
+        await asyncio.wait_for(task, 1)
+        assert not FakeStream.instances[-1].closed  # stays open right after a clip
+        await _wait_until(lambda: FakeStream.instances[-1].closed)
+    assert len(FakeStream.instances) == 2
+
+
+async def test_player_keeps_stream_open_between_close_clips() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000, idle_close_s=0.2)
+    for _ in range(3):
+        task = asyncio.create_task(player.play(np.ones(10, np.float32), 24000))
+        await _wait_until(lambda: not player._drained.is_set())
+        FakeStream.instances[-1].pull(64)
+        await asyncio.wait_for(task, 1)
+        await asyncio.sleep(0.05)
+    assert len(FakeStream.instances) == 1 and not FakeStream.instances[0].closed
+    player.close()
