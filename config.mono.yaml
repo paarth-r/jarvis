@@ -36,8 +36,8 @@ modules:
                           # absolute = legacy hand-position mapping (screen_gain)
                           # trackpad = hand motion moves the cursor, with acceleration; fist = clutch
     box:                  # box-mode tuning (lengths are metres at mono_depth_m)
-      box_width_m: 0.24   # hand travel for the full screen width — smaller = less movement
-      box_height_m: 0.15  # hand travel for the full screen height
+      box_width_m: 0.192  # hand travel for the full screen width — smaller = less movement
+      box_height_m: 0.12  # hand travel for the full screen height
       min_cutoff: 0.3     # 1-euro Hz at rest — lower = steadier when holding still
       beta: 10.0          # 1-euro — higher = less lag in fast moves
     trackpad:             # trackpad-mode tuning (ignored in box mode)
