@@ -195,7 +195,9 @@ class Brain:
         self._last_active = self._clock()
         budget = self.cfg.turn_timeout_s
         finished = False
+        failed = False  # timeout or crash: the stream is dead, never drain it
         stream = None
+        # Asks never overlap (the loop runs one turn at a time), so one flag pair suffices.
         self._in_flight, self._interrupted = True, False
         try:
             budget = await self._timed(client.query(text), budget)
@@ -251,12 +253,16 @@ class Brain:
                                   limit=200)
             finished = True
         except TimeoutError:
+            failed = True
             raise BrainTimeout(
                 f"no reply within {self.cfg.turn_timeout_s:.0f} s"
             ) from None
+        except Exception:
+            failed = True
+            raise
         finally:
             interrupted, self._in_flight, self._interrupted = self._interrupted, False, False
-            if (not finished and interrupted and stream is not None
+            if (not finished and not failed and interrupted and stream is not None
                     and self._client is client):
                 finished = await self._interrupt_and_drain(client, stream)
             self._last_active = self._clock()
@@ -266,15 +272,19 @@ class Brain:
 
     async def _interrupt_and_drain(self, client: Any, stream: AsyncIterator[Any]) -> bool:
         """Stop the turn on the CLI and read to its ResultMessage. True if clean."""
-        async def drain() -> None:
+        async def drain() -> bool:
             await client.interrupt()
             async for msg in stream:
                 if isinstance(msg, ResultMessage):
-                    break
+                    return True
+            return False  # stream ended without a result: dead or already cancelled
 
         try:
-            await asyncio.wait_for(drain(), INTERRUPT_DRAIN_TIMEOUT_S)
-            return True
+            return await asyncio.wait_for(drain(), INTERRUPT_DRAIN_TIMEOUT_S)
+        except asyncio.CancelledError:
+            if self._client is client:
+                self._recycle()
+            raise
         except Exception:
             log.warning("could not interrupt the turn cleanly", exc_info=True)
             return False

@@ -142,6 +142,13 @@ def make_brain(tmp_path, flag_dir, confirm=None, clock=None, **cfg_kw) -> Brain:
     )
 
 
+async def settle(brain: Brain) -> None:
+    while brain._background or brain._warming is not None and not brain._warming.done():
+        await asyncio.gather(*brain._background, *([brain._warming] if brain._warming else []),
+                             return_exceptions=True)
+        await asyncio.sleep(0)
+
+
 async def collect(brain: Brain, text: str) -> list[str]:
     return [chunk async for chunk in brain.ask(text)]
 
@@ -248,7 +255,7 @@ async def test_interrupt_without_ask_is_noop(tmp_path, flag_dir):
     gen = brain.ask("hi")
     assert await gen.__anext__() == "Hello "
     await gen.aclose()
-    await asyncio.sleep(0.01)
+    await settle(brain)
     assert FakeClient.instances[0].interrupts == 0
     assert len(FakeClient.instances) == 2
 
@@ -263,7 +270,7 @@ async def test_interrupt_mark_does_not_leak_to_next_ask(tmp_path, flag_dir):
     gen = brain.ask("again")
     await gen.__anext__()
     await gen.aclose()
-    await asyncio.sleep(0.01)
+    await settle(brain)
     assert FakeClient.instances[0].disconnected
     assert len(FakeClient.instances) == 2
 
@@ -281,6 +288,45 @@ async def test_interrupt_drain_timeout_recycles(tmp_path, flag_dir, monkeypatch)
     FakeClient.drain_hang = False
     assert first.interrupts == 1
     assert await collect(brain, "again") == ["Hello ", "there."]
+    assert first.disconnected
+    assert len(FakeClient.instances) == 2
+
+
+async def test_drain_without_result_recycles(tmp_path, flag_dir):
+    brain = make_brain(tmp_path, flag_dir)
+    await brain.start()
+    first = FakeClient.instances[0]
+    FakeClient.script = [message_start(), delta("Hello "), delta("there.")]
+    gen = brain.ask("hi")
+    await gen.__anext__()
+    await brain.interrupt()
+    await gen.aclose()
+    await settle(brain)
+    assert first.interrupts == 1
+    assert first.disconnected
+    assert len(FakeClient.instances) == 2
+
+
+async def test_cancel_during_drain_recycles(tmp_path, flag_dir):
+    brain = make_brain(tmp_path, flag_dir)
+    await brain.start()
+    first = FakeClient.instances[0]
+    FakeClient.drain_hang = True
+
+    async def run():
+        gen = brain.ask("hi")
+        await gen.__anext__()
+        await brain.interrupt()
+        await gen.aclose()
+
+    task = asyncio.create_task(run())
+    while not first.interrupts:
+        await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await settle(brain)
     assert first.disconnected
     assert len(FakeClient.instances) == 2
 
