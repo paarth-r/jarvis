@@ -92,7 +92,8 @@ def _normalize(text: str) -> str:
 
 class VoiceLoop:
     def __init__(self, mic: Any, player: Any, wake: Any, recorder: Any, stt: Any,
-                 brain: Any, tts: Any, log: Any, cfg: Any, judge: Any = None) -> None:
+                 brain: Any, tts: Any, log: Any, cfg: Any, judge: Any = None,
+                 ducker: Any = None) -> None:
         self.mic = mic
         self.player = player
         self.wake = wake
@@ -103,6 +104,7 @@ class VoiceLoop:
         self.log = log
         self.cfg = cfg
         self.judge = judge or judge_approval  # (question, answer) -> approved?
+        self.ducker = ducker  # lowers other apps' music while engaged; None = off
         self.state = "IDLE"
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._audio_lock = asyncio.Lock()
@@ -134,7 +136,17 @@ class VoiceLoop:
     async def _conversation(self) -> None:
         """One wake: a command, then follow-ups until silence or an error."""
         self.wake.reset()
-        await self._tone("wake")
+        # Duck alongside the wake tone so osascript never delays it; the finally
+        # waits for the duck so it cannot land after the restore.
+        ducking = asyncio.create_task(self._duck())
+        try:
+            await self._tone("wake")
+            await self._converse()
+        finally:
+            await asyncio.gather(ducking, return_exceptions=True)
+            await self._restore()
+
+    async def _converse(self) -> None:
         self._set("LISTEN")
         audio = await self._record(LISTEN_TIMEOUT_S)
         in_followup = False
@@ -152,6 +164,22 @@ class VoiceLoop:
             self._set("FOLLOWUP")
             audio = await self._record(self.cfg.followup_s)
             in_followup = True
+
+    async def _duck(self) -> None:
+        if self.ducker is None:
+            return
+        try:
+            await asyncio.to_thread(self.ducker.duck)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+
+    async def _restore(self) -> None:
+        if self.ducker is None:
+            return
+        try:
+            await asyncio.to_thread(self.ducker.restore)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
 
     async def handle_turn(self, audio: np.ndarray) -> None:
         """Transcribe one utterance and answer it (exposed for tests)."""
@@ -330,7 +358,9 @@ class VoiceLoop:
         if not speakable:
             return
         self._set("SPEAK")
-        samples, sr = await asyncio.to_thread(self.tts.synth, speakable)
+        # Re-duck while synthesizing: music Claude started mid-turn gets lowered too.
+        (samples, sr), _ = await asyncio.gather(
+            asyncio.to_thread(self.tts.synth, speakable), self._duck())
         trace("said", speakable)
         with self.mic.mute(MUTE_TAIL_S):
             await self.player.play(samples, sr)

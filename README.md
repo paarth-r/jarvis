@@ -208,6 +208,17 @@ Replies use Kokoro's `bm_daniel`, a British male voice, and address you as "sir"
 Change `tts_voice` (any Kokoro voice id; `b*` voices get British pronunciation) or
 `address_as` (empty for none) in your local config.
 
+### Music ducking
+
+While Jarvis is engaged (from the wake word until the conversation ends) it lowers
+Spotify and Apple Music to `duck_ratio` (default 0.2) of their current level, then
+fades them back to exactly where they were. Only each app's own volume is changed,
+never the system volume Jarvis speaks at, and only apps that are already running.
+If you change an app's volume while it is ducked, your choice is kept. Levels are
+saved to `~/.jarvis/voice/duck.json` while ducked, so a crash cannot leave music
+low: the next start restores them. Set `duck_music: false` to turn it off. macOS has
+no per-app volume API, so only Spotify and Apple Music can be ducked.
+
 ### Confirmation rules
 
 - `permission_mode: auto` (the default) turns on Claude Code's auto mode: its own

@@ -38,6 +38,8 @@ class VoiceConfig:
     working_tone_after_s: float = 3.0
     turn_timeout_s: float = 180.0
     idle_reset_s: float = 600.0
+    duck_music: bool = True
+    duck_ratio: float = 0.2
     data_dir: Path = Path("~/.jarvis/voice").expanduser()
     input_device: str | int | None = None
     output_device: str | int | None = None

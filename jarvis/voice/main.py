@@ -111,8 +111,14 @@ async def run(cfg: VoiceConfig, room: bool) -> None:
 
     d = build_deps(cfg, room)
     await asyncio.to_thread(warm_stt, d.stt)
+    ducker = None
+    if cfg.duck_music:
+        from jarvis.voice.duck import MusicDucker
+
+        ducker = MusicDucker(state_path=cfg.data_dir / "duck.json", ratio=cfg.duck_ratio)
+        await asyncio.to_thread(ducker.recover)  # a crashed run may have left music low
     loop = VoiceLoop(d.mic, d.player, d.wake, d.recorder, d.stt, d.brain, d.tts,
-                     d.log, cfg)
+                     d.log, cfg, ducker=ducker)
     d.brain.confirm = loop.confirm  # type: ignore[attr-defined]
     try:
         print("[voice] starting brain", file=sys.stderr, flush=True)
@@ -120,6 +126,8 @@ async def run(cfg: VoiceConfig, room: bool) -> None:
         print("[voice] ready", file=sys.stderr, flush=True)
         await loop.run()
     finally:
+        if ducker is not None:
+            await asyncio.to_thread(ducker.restore)
         d.player.close()  # type: ignore[attr-defined]
         await loop.aclose()
         await d.brain.close()  # type: ignore[attr-defined]

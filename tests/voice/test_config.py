@@ -55,3 +55,9 @@ def test_shipped_example_defaults_to_daniel_and_sir():
     cfg = load_config(Path(__file__).resolve().parents[2] / "config.voice.example.yaml", None)
     assert cfg.tts_voice == "bm_daniel"
     assert cfg.address_as == "sir"
+
+
+def test_duck_defaults():
+    cfg = load_config(Path(__file__).resolve().parents[2] / "config.voice.example.yaml", None)
+    assert cfg.duck_music is True
+    assert cfg.duck_ratio == 0.2

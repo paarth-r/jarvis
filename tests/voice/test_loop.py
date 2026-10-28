@@ -649,3 +649,73 @@ async def test_capped_recording_is_not_extended():
 def test_trails_off(text, trails):
     from jarvis.voice.loop import _trails_off
     assert _trails_off(text) is trails
+
+
+class FakeDucker:
+    def __init__(self, player=None, fail=False) -> None:
+        self.events: list[str] = []
+        self.player = player
+        self.fail = fail
+
+    def duck(self) -> None:
+        self.events.append("duck")
+        if self.fail:
+            raise RuntimeError("osascript died")
+
+    def restore(self) -> None:
+        self.events.append("restore")
+        if self.fail:
+            raise RuntimeError("osascript died")
+
+
+def make_ducked(utterances, transcripts, brain, ducker):
+    loop, d = make(utterances, transcripts, brain)
+    loop.ducker = ducker
+    return loop, d
+
+
+async def test_ducked_for_turn_and_restored_after():
+    brain = FakeBrain([["Report is due."]])
+    ducker = FakeDucker()
+    loop, d = make_ducked([AUDIO], ["what's due"], brain, ducker)
+    await loop.run()
+    assert ducker.events[0] == "duck"
+    assert ducker.events[-1] == "restore"
+    assert ducker.events.count("restore") == 1
+
+
+async def test_reducked_before_each_sentence():
+    brain = FakeBrain([["One. Two."]])
+    ducker = FakeDucker()
+    loop, d = make_ducked([AUDIO], ["hi there"], brain, ducker)
+    await loop.run()
+    # wake duck + one per sentence (One., Two.) then the final restore
+    assert ducker.events == ["duck", "duck", "duck", "restore"]
+
+
+async def test_restored_when_turn_raises():
+    brain = FakeBrain(error=RuntimeError("boom"))
+    ducker = FakeDucker()
+    loop, d = make_ducked([AUDIO], ["what's due"], brain, ducker)
+    await loop.run()
+    assert ducker.events[-1] == "restore"
+
+
+async def test_restored_when_conversation_cancelled():
+    brain = FakeBrain(delay=5)
+    ducker = FakeDucker()
+    loop, d = make_ducked([AUDIO], ["what's due"], brain, ducker)
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert ducker.events[-1] == "restore"
+
+
+async def test_ducker_failure_never_fails_the_turn():
+    brain = FakeBrain([["Report is due."]])
+    ducker = FakeDucker(fail=True)
+    loop, d = make_ducked([AUDIO], ["what's due"], brain, ducker)
+    await loop.run()
+    assert d.player.played == ["tone:wake", "Report is due."]

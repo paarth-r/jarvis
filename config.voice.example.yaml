@@ -32,6 +32,9 @@ max_utterance_s: 30.0
 working_tone_after_s: 3.0
 turn_timeout_s: 180.0
 idle_reset_s: 600.0
+# Lower Spotify / Music app volume to duck_ratio of its level while Jarvis is engaged.
+duck_music: true
+duck_ratio: 0.2
 data_dir: ~/.jarvis/voice
 input_device: null
 output_device: null
