@@ -6,7 +6,8 @@ from typing import Optional
 
 import numpy as np
 
-from ..events import GestureEvent, WorldPoseEvent, IntentEvent
+from ..events import (GestureEvent, GestureStateEvent, IntentEvent, StudioModeEvent,
+                      WorldPoseEvent)
 from ..gestures.builtins import is_fist
 from ..gestures.engine import GestureEngine, GestureFrame
 from ..gestures.features import features, palm_frame
@@ -155,10 +156,20 @@ class GestureHCIModule(Module):
         self._scroll_enabled: bool = scroll.pop("enabled", True)
         self._scroller = TiltScroller(**scroll)
         self.last_frame: Optional[GestureFrame] = None
+        self._recording = False   # the studio is recording a gesture: hands off the cursor
         self.bus.subscribe(WorldPoseEvent, self._on_pose)
+        self.bus.subscribe(StudioModeEvent, self._on_studio_mode)
+
+    async def _on_studio_mode(self, event: StudioModeEvent) -> None:
+        self._recording = event.recording
+        if event.recording and self._fsm.lock() == "release":
+            self._controller.mouse_up_here()
 
     async def _on_pose(self, event: WorldPoseEvent) -> None:
         hold = await self._arbitrate(event)
+        if self._recording:
+            self._fsm.lock()
+            return
         if self._mode == "trackpad":
             await self._on_pose_trackpad(event, hold)
         elif self._mode == "box":
@@ -205,7 +216,14 @@ class GestureHCIModule(Module):
         fist = frame.active == "fist" or frame.candidate == "fist"
         if (fist or frame.active is not None) and self._fsm.state != "dragging":
             self._fsm.lock()
-        await self._scroll(frame, event)
+        if not self._recording:
+            await self._scroll(frame, event)
+        scrolling = frame.active == "fist" and self._scroller.active
+        await self.bus.publish(GestureStateEvent(
+            active=frame.active, candidate=frame.candidate, scores=frame.scores,
+            pinch=self._fsm.state, timestamp=event.timestamp,
+            scroll={"pitch": self._scroller.pitch, "roll": self._scroller.roll} if scrolling else None,
+        ))
         return fist
 
     async def _scroll(self, frame: GestureFrame, event: WorldPoseEvent) -> None:

@@ -79,6 +79,10 @@ modules:
     # Gesture -> action bindings live in ~/.jarvis/gestures.json (edit them in
     # the gesture studio; picked up live) and override these defaults.
     # bindings: {point: {type: keys, combo: "cmd+space"}}
+  studio:
+    class: jarvis.studio.module.StudioModule
+    enabled: true         # gesture studio at http://127.0.0.1:8765 (add gestures, bind actions)
+    port: 8765
   visualizer:
     class: jarvis.modules.visualizer.VisualizerModule
     enabled: false        # set true to watch detection windows

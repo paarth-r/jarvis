@@ -52,6 +52,17 @@ class GestureEvent:
 
 
 @dataclass
+class GestureStateEvent:
+    # Every frame from gesture_hci, for the studio's live view.
+    active: Optional[str]      # the gesture in effect
+    candidate: Optional[str]   # what this frame's shape looked like
+    scores: dict               # custom gesture -> match score 0-1
+    pinch: str                 # pinch FSM state
+    scroll: Optional[dict]     # {"pitch", "roll"} degrees while fist-scrolling
+    timestamp: float
+
+
+@dataclass
 class StudioModeEvent:
     # The gesture studio is recording takes: cursor control and gesture
     # actions pause so making the gesture doesn't click or fire anything.
