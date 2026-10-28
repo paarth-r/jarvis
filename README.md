@@ -1,21 +1,53 @@
-# Jarvis
+<p align="center">
+  <img src="docs/images/banner.svg" alt="Jarvis: hands, eyes and voice for your Mac" width="100%">
+</p>
 
-Vision-based human–computer interaction runtime. A stereo camera pair watches your
-hands; Jarvis tracks them with MediaPipe, triangulates the landmarks into 3D world
-coordinates, and turns gestures into actions — cursor movement, pinch to click or
-drag (a quick pinch clicks; holding it past `drag_hold_s` drags until released),
-fist-then-tilt to scroll, and your own custom gestures bound to media keys, key
-combos or macros — with a live 2D + 3D visualizer and a browser-based gesture studio.
+<p align="center">
+  <a href="https://github.com/paarth-r/jarvis/actions/workflows/tests.yml"><img src="https://github.com/paarth-r/jarvis/actions/workflows/tests.yml/badge.svg" alt="tests"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-3776ab" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/platform-macOS-111111?logo=apple" alt="macOS">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow" alt="MIT license"></a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+<p align="center">
+  <a href="#gestures">Gestures</a> ·
+  <a href="#gesture-studio">Gesture studio</a> ·
+  <a href="#eye-tracking-cursor">Eye tracking</a> ·
+  <a href="#voice-agent">Voice</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#testing">Testing</a>
+</p>
 
-> Successor to the two-script prototype in `mouse_control/` and `gesture_control/`.
-> Those are kept as legacy references; the runtime below is the real system.
+Jarvis turns a camera and a microphone into a way to drive your Mac. Point and
+pinch to move and click, make a fist and tilt to scroll, teach it your own
+gestures in a browser studio, steer the cursor with your eyes, or just say
+"hey Jarvis" and talk to Claude.
 
----
+| | What you get |
+|---|---|
+| **Gestures** | Stereo or single-webcam hand tracking in 3D. Pinch to click or drag, fist-tilt to scroll, and your own few-shot gestures bound to media keys, key combos, text, shell commands or macros. |
+| **Gesture studio** | A local web app to record a new gesture in a few takes, check it is recognizable, repeatable and distinct from the rest, then bind it. |
+| **Eye tracking** | A webcam gaze cursor with per-session calibration. Look to move, pinch to click. |
+| **Voice** | An always-on voice front-end for Claude Code: local wake word, speech-to-text and voice, music that ducks while you talk, and "wait" to cut it off mid-sentence. |
+
+## Quick start
+
+```bash
+git clone https://github.com/paarth-r/jarvis.git && cd jarvis
+python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev]"
+./run_mono.sh      # hand-controlled cursor from the built-in webcam
+./run_studio.sh    # the same, plus the gesture studio in your browser
+./run_gaze.sh      # eye-tracking cursor
+```
+
+The voice agent has its own environment; see [Voice agent](#voice-agent).
 
 ## How it works
+
+<p align="center"><img src="docs/images/how-it-works.svg" alt="Gesture, eye-tracking and voice pipelines" width="100%"></p>
+
+<details>
+<summary><b>The event bus in detail</b></summary>
 
 A single asyncio event loop with typed pub/sub events as the spine. Each module
 subscribes to event types and publishes new ones:
@@ -38,6 +70,11 @@ CameraModule ──FrameEvent──▶ HandPoseModule ──PoseEvent──▶ S
   a single active gesture per frame (see [Gestures](#gestures)); the dispatcher
   only ever sees its arbitrated start/end events.
 - **Arm and LLM** run as independent subprocesses over JSON-lines bridges (stubs today).
+
+> Successor to the two-script prototype in `mouse_control/` and `gesture_control/`.
+> Those are kept as legacy references; the runtime below is the real system.
+
+</details>
 
 ## Install
 
@@ -90,6 +127,21 @@ The mono config runs the cursor in **box mode** (`gesture_hci.mode: box`):
 Other modes: `absolute` (legacy hand-position mapping via `screen_gain`) and
 `trackpad` (relative motion with pointer acceleration; fist = clutch).
 
+<details>
+<summary><b>No hardware? Replay from a clip</b></summary>
+
+Any camera can read from a recorded video or an image folder instead of a live
+device — the whole pipeline (and the 3D viewer) runs with no rig:
+
+```yaml
+cameras:
+  left:  { source: images, path: /path/to/frames, fps: 30, intrinsics: {...}, extrinsics: {...} }
+```
+
+`source` may be `device` (default, live), `video` (a file), or `images` (a folder).
+
+</details>
+
 ## Gestures
 
 | Gesture | What it does |
@@ -120,6 +172,8 @@ so they work from one webcam; the mono cursor path is unchanged.
 
 ### Gesture studio
 
+<p align="center"><img src="docs/images/studio.png" alt="The gesture studio: live 3D hand, active gesture, match scores and gesture bindings" width="100%"></p>
+
 ```bash
 ./run_studio.sh             # mono Jarvis + opens the studio in your browser; Ctrl-C quits
 ./run_studio.sh other.yaml  # same, with another config
@@ -134,6 +188,8 @@ custom gesture, and the tilt gauge while you scroll. On the right, every gesture
 with its binding.
 
 **Add a gesture** in five steps:
+
+<p align="center"><img src="docs/images/studio-add.png" alt="Adding a gesture: three takes recorded, quality check passed (recognizable, repeatable, distinct), bind and save" width="70%"></p>
 
 1. Name it.
 2. Record takes (button or Space): a 3 s countdown, then hold for 1.5 s. Five
@@ -167,7 +223,7 @@ Gestures and bindings live in `~/.jarvis/gestures.json` (override with
 localhost only and refuses requests from other websites, since a binding can run
 a shell command.
 
-### Eye-tracking cursor
+## Eye-tracking cursor
 
 `./run_gaze.sh` makes your **eyes** the cursor. The built-in webcam watches both
 your face and your hand (`config.gaze.yaml`). The hand never moves the cursor;
@@ -197,18 +253,6 @@ jarvis-gaze-calibrate         # calibration alone -> ~/.jarvis/gaze_calibration.
 
 If you sit differently mid-session, restart to recalibrate. The fit uses head
 pose, but a webcam can't fully separate head motion from eye motion.
-
-### No hardware? Replay from a clip
-
-Any camera can read from a recorded video or an image folder instead of a live
-device — the whole pipeline (and the 3D viewer) runs with no rig:
-
-```yaml
-cameras:
-  left:  { source: images, path: /path/to/frames, fps: 30, intrinsics: {...}, extrinsics: {...} }
-```
-
-`source` may be `device` (default, live), `video` (a file), or `images` (a folder).
 
 ## Voice agent
 
@@ -263,7 +307,8 @@ fan, window, thermostat and speakers for testing. `jarvis-voice --list-devices` 
 loads every model and builds the session config, then prints `ok` and exits. State
 transitions are logged to stderr as `[voice] IDLE -> LISTEN`.
 
-### Spotify from the command line
+<details>
+<summary><b>Spotify from the command line (jarvis-dj)</b></summary>
 
 `jarvis-dj` drives the same speakers and library without the room server, printing
 JSON, so any script or Claude session can DJ: `jarvis-dj play "gym" --kind my_playlist`,
@@ -272,7 +317,11 @@ JSON, so any script or Claude session can DJ: `jarvis-dj play "gym" --kind my_pl
 `next`, `prev`, `shuffle on`, `volume 40`, `now`. There is no queue: the desktop app's
 AppleScript can only start a track, album, playlist or artist.
 
+</details>
+
 ### Terminal trace
+
+<p align="center"><img src="docs/images/voice-trace.svg" alt="Example terminal trace: a request, tool calls, spoken replies and a mid-sentence interruption" width="100%"></p>
 
 Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),
 `[thinking]` (Claude's thinking, when it streams any), `[tool]` / `[result]` (each
@@ -281,17 +330,23 @@ phrase that cut a reply off) and `[turn]` (why your
 turn ended: `smart_turn`, `hard_silence` or `max_length`, with the pause length and
 the smart-turn score).
 
-### Drop-in wake words
+<details>
+<summary><b>Drop-in wake words</b></summary>
 
 Every `*.onnx` openWakeWord model in `models/wakeword/` is loaded next to the
 built-in `hey_jarvis`, and fires the same way. For example,
 `scripts/fetch_voice_models.sh --hey-claude` adds a community "hey claude" model.
 
-### Voice
+</details>
+
+<details>
+<summary><b>Changing the voice</b></summary>
 
 Replies use Kokoro's `bm_daniel`, a British male voice, and address you as "sir".
 Change `tts_voice` (any Kokoro voice id; `b*` voices get British pronunciation) or
 `address_as` (empty for none) in your local config.
+
+</details>
 
 ### Music ducking
 
@@ -336,7 +391,8 @@ It reported 0 hits (1 with `--single-window`) clean, with noise and at low gain.
 the TTS audio in directly, so it does not model the room: speaker and mic coloring,
 reverb, or music playing in the background.
 
-### Confirmation rules
+<details>
+<summary><b>Confirmation rules</b></summary>
 
 - `permission_mode: auto` (the default) turns on Claude Code's auto mode: its own
   classifier vets every tool call, so shell commands, file edits and lookups just run.
@@ -352,7 +408,10 @@ reverb, or music playing in the background.
 - `permission_mode: default` restores the strict gate (shell commands, writes
   outside the vault and most MCP writes ask too).
 
-### Privacy
+</details>
+
+<details>
+<summary><b>Privacy</b></summary>
 
 Personal settings live only in `config.voice.local.yaml` and the vocab file, both
 gitignored, as are the model files. Audio is processed on the machine; recorded
@@ -362,6 +421,8 @@ committed. Requests themselves go to Claude through Claude Code.
 
 See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 [docs/voice/room-api.md](docs/voice/room-api.md) for the room API contract.
+
+</details>
 
 ## Configuration (`config.yaml`)
 
@@ -373,6 +434,9 @@ See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 | `subprocesses` | Optional arm / LLM subprocess bridges |
 
 ## Modules
+
+<details>
+<summary><b>Every module, what it consumes and what it produces</b></summary>
 
 | Module | Consumes → Produces |
 |---|---|
@@ -387,13 +451,21 @@ See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 | `StudioModule` | `WorldPoseEvent` + `GestureStateEvent` → gesture studio web UI; `StudioModeEvent` pauses cursor and actions while recording |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |
 
+</details>
+
 ## Testing
 
 ```bash
+pip install -e ".[dev,voice]"
 pytest
 ```
 
-The suite is fully mocked — no camera or GUI is opened.
+600+ tests cover the event bus, stereo fusion, the gesture engine and quality
+check, the studio API, the gaze model and the whole voice loop. The suite is
+fully mocked: no camera, microphone, GUI or network is opened, and the handful
+of tests that need downloaded models skip without them. Every push to `main`
+and every pull request runs it on a macOS runner
+([workflow](.github/workflows/tests.yml)).
 
 ## Calibration status
 
