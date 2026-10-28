@@ -40,8 +40,11 @@ def find_stop_phrase(transcript: str, speaking: str, phrases: list[str]) -> str 
 
 class BargeInListener:
     def __init__(self, vad: Any, stt: Any, phrases: list[str], min_speech_s: float = 0.3,
-                 window_s: float = 2.0, step_s: float = 0.5) -> None:
+                 window_s: float = 2.0, step_s: float = 0.5, confirm_windows: int = 2) -> None:
         self._vad, self._stt, self._phrases = vad, stt, phrases
+        # A stop phrase must be heard in this many consecutive STT windows: a window
+        # cut mid-word makes Whisper mishear Jarvis ("nothing" as "no idea").
+        self._confirm = max(1, confirm_windows)
         self._min = max(1, round(min_speech_s * SAMPLE_RATE / FRAME))
         self._window = max(1, round(window_s * SAMPLE_RATE / FRAME))
         self._step = max(1, round(step_s * SAMPLE_RATE / FRAME))
@@ -56,7 +59,7 @@ class BargeInListener:
         if hasattr(self._vad, "reset"):
             self._vad.reset()
         segment: list[np.ndarray] = []
-        speech = silence = since_stt = 0
+        speech = silence = since_stt = streak = 0
         while not done.is_set():
             try:
                 frame = await anext(frames)
@@ -75,11 +78,14 @@ class BargeInListener:
                     hit = None
                     if speech >= self._min and since_stt:
                         hit = await self._check(segment, speaking)
+                        streak = streak + 1 if hit else 0
                     if done.is_set():
                         return None
-                    if hit:
+                    # A segment that fits in one window is bounded by silence on both
+                    # sides, so no word in it was cut: one sighting is enough ("no").
+                    if hit and (streak >= self._confirm or len(segment) <= self._window):
                         return hit
-                    segment, speech, silence, since_stt = [], 0, 0, 0
+                    segment, speech, silence, since_stt, streak = [], 0, 0, 0, 0
                 continue
             else:
                 continue
@@ -88,9 +94,10 @@ class BargeInListener:
                 continue
             since_stt = 0
             hit = await self._check(segment, speaking)
+            streak = streak + 1 if hit else 0
             if done.is_set():
                 return None
-            if hit:
+            if hit and streak >= self._confirm:
                 return hit
         return None
 

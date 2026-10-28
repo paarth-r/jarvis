@@ -76,10 +76,22 @@ def test_build_barge_uses_its_own_vad_and_a_quarter_second_step(monkeypatch):
     monkeypatch.setattr(turn, "SileroVAD", FakeVAD)
     cfg = VoiceConfig(vault=Path("/v"), kokoro_model=Path("k"), kokoro_voices=Path("v"),
                       smart_turn_model=Path("s"), stop_phrases=("wait",))
-    stt = object()
-    barge = build_barge(cfg, stt)
+    barge = build_barge(cfg)
     assert isinstance(barge, BargeInListener)
-    assert barge._vad is made[0] and barge._stt is stt and barge._phrases == ("wait",)
+    assert barge._vad is made[0] and barge._phrases == ("wait",)
     assert barge._step == 3  # 0.25 s of 80 ms frames
     from dataclasses import replace
-    assert build_barge(replace(cfg, barge_in=False), stt) is None
+    assert build_barge(replace(cfg, barge_in=False)) is None
+
+
+def test_build_barge_stt_has_no_vocab_prompt():
+    # Whisper can emit prompt words ("Jarvis") on noisy audio: a false stop phrase.
+    from jarvis.voice.config import VoiceConfig
+    from jarvis.voice.main import build_barge
+    from jarvis.voice.stt import WhisperSTT
+
+    cfg = VoiceConfig(vault=Path("/v"), kokoro_model=Path("k"), kokoro_voices=Path("v"),
+                      smart_turn_model=Path("s"), stt_model="mlx-community/whisper-x")
+    stt = build_barge(cfg)._stt
+    assert isinstance(stt, WhisperSTT)
+    assert stt.model == "mlx-community/whisper-x" and stt.initial_prompt is None

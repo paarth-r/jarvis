@@ -159,3 +159,52 @@ async def test_hit_audio_is_only_the_window_that_heard_it() -> None:
     assert result is not None and result.phrase == "wait"
     assert len(result.audio) == stt.calls[-1] <= 2 * 16000
     assert result.audio[0] > 1  # the first speech frames fell out of the window
+
+
+class Script(FakeSTT):
+    """One scripted transcript per STT window, then the last one forever."""
+
+    def __init__(self, texts):
+        super().__init__("")
+        self.texts = list(texts)
+
+    def transcribe(self, audio):
+        self.calls.append(len(audio))
+        return self.texts[min(len(self.calls), len(self.texts)) - 1]
+
+
+async def test_one_window_mishearing_does_not_fire() -> None:
+    # A window cut mid-word: "You have nothing" heard once as "You have no idea".
+    stt = Script(["You have", "You have no idea.", "You have nothing due"])
+    result = await _listener(FakeVAD([True] * 30 + [False]), stt).listen(
+        Frames(40), lambda: "You have nothing due tomorrow.", asyncio.Event())
+    assert result is None
+
+
+async def test_stop_phrase_in_two_consecutive_windows_fires() -> None:
+    stt = Script(["the weather", "the weather is wait", "weather is wait"])
+    result = await _listener(FakeVAD([True]), stt).listen(Frames(100), lambda: "", asyncio.Event())
+    assert result is not None and result.phrase == "wait" and len(stt.calls) == 3
+
+
+async def test_two_windows_must_be_consecutive() -> None:
+    stt = Script(["wait", "hello there", "wait", "hello again"])
+    result = await _listener(FakeVAD([True] * 40 + [False]), stt).listen(
+        Frames(50), lambda: "", asyncio.Event())
+    assert result is None
+
+
+async def test_single_window_mode_fires_at_once() -> None:
+    stt = Script(["wait"])
+    listener = BargeInListener(FakeVAD([True]), stt, PHRASES, min_speech_s=0.3, window_s=2.0,
+                               step_s=0.5, confirm_windows=1)
+    result = await listener.listen(Frames(100), lambda: "", asyncio.Event())
+    assert result is not None and len(stt.calls) == 1
+
+
+async def test_segment_end_of_a_long_segment_still_needs_two_windows() -> None:
+    # The final window of a 2.6 s segment starts mid-word, so one sighting is not enough.
+    stt = Script(["x"] * 5 + ["no"])
+    result = await _listener(FakeVAD([True] * 32 + [False]), stt).listen(
+        Frames(45), lambda: "", asyncio.Event())
+    assert result is None and len(stt.calls) == 6

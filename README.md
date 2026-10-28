@@ -235,11 +235,21 @@ There is no echo cancellation: the mic listens while Jarvis speaks, so a phrase 
 only if it is not in the sentence being spoken (Jarvis saying "no problem" cannot stop
 itself). The mic also hears the words Jarvis played just before you cut in, so the
 transcript of what you say next is trimmed to start at your stop phrase ("...sunny and
-wait, play jazz" reaches Claude as "wait, play jazz"). Detection is word-based (Whisper on the last couple of seconds), so expect about
-half a second before it stops. Only reply sentences can be interrupted: confirmation
+wait, play jazz" reaches Claude as "wait, play jazz"). Detection is word-based: a
+separate Whisper (no vocabulary prompt, so it never "hears" a prompt word like Jarvis in
+noise) transcribes the last two seconds every quarter second, and a phrase must show up
+in two windows in a row (a window cut mid-word can turn "nothing" into "no idea"), so
+expect about three quarters of a second before it stops. Only reply sentences can be interrupted: confirmation
 questions, tones and error messages still play with the mic muted, and interrupting
 while Claude is still thinking (before it starts speaking) is not covered yet. Set
 `barge_in: false` to keep the mic muted for all playback, or change `stop_phrases`.
+
+`scripts/bargein_soak.py` checks for false barge-ins offline: it synthesizes 22 replies
+full of near-misses ("now", "know", "nothing", "wait time", "on hold", "Jarvis") with
+your Kokoro voice and feeds them to the real listener; a hit means Jarvis stopped itself.
+It reported 0 hits (1 with `--single-window`) clean, with noise and at low gain. It feeds
+the TTS audio in directly, so it does not model the room: speaker and mic coloring,
+reverb, or music playing in the background.
 
 ### Confirmation rules
 

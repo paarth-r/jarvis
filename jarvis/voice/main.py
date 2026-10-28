@@ -70,18 +70,23 @@ class Deps:
     barge: object = None
 
 
-def build_barge(cfg: VoiceConfig, stt: object) -> object:
+def build_barge(cfg: VoiceConfig) -> object:
     """The stop-phrase listener, or None when barge-in is off.
 
-    It gets its own VAD so its recurrent state never mixes with the recorder's.
+    It gets its own VAD so its recurrent state never mixes with the recorder's, and
+    its own Whisper with no vocabulary prompt: on noisy audio Whisper can emit prompt
+    words ("Jarvis"), which would be a false stop phrase. mlx-whisper caches the
+    weights by model path, so this shares them with the main STT.
     """
     if not cfg.barge_in:
         return None
     from jarvis.voice import turn
     from jarvis.voice.bargein import BargeInListener
+    from jarvis.voice.stt import WhisperSTT
 
     # Whisper takes ~90 ms per 2 s window here: a 0.25 s step keeps a stop under ~0.65 s.
-    return BargeInListener(turn.SileroVAD(), stt, cfg.stop_phrases, step_s=0.25)
+    return BargeInListener(turn.SileroVAD(), WhisperSTT(cfg.stt_model), cfg.stop_phrases,
+                           step_s=0.25)
 
 
 def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
@@ -113,7 +118,7 @@ def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
         tts=tts,
         log=VoiceLog(cfg.vault, cfg.data_dir),
         brain=Brain(cfg, extra_mcp=extra_mcp),
-        barge=build_barge(cfg, stt),
+        barge=build_barge(cfg),
     )
 
 
