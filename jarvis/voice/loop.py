@@ -27,6 +27,12 @@ from jarvis.voice.stt import strip_wake_phrase
 
 LISTEN_TIMEOUT_S = 6
 CONFIRM_TIMEOUT_S = 6
+# A transcript that trails off ("check out, uh, like-") is a pause, not the end:
+# keep listening up to MAX_CONTINUATIONS times for the rest of the sentence.
+CONTINUE_TIMEOUT_S = 3.0
+MAX_CONTINUATIONS = 2
+TRAILING_WORDS = {"uh", "um", "uhm", "umm", "er", "erm", "hmm", "like", "and", "but", "or",
+                  "because", "the", "a", "an", "to", "of", "with", "for"}
 MUTE_TAIL_S = 0.3
 NEW_CONVERSATION = "new conversation"
 # Said on its own, any of these drops the conversation without asking Claude.
@@ -63,6 +69,16 @@ def _is_closing(text: str) -> bool:
     norm = _normalize(text)
     rest, found = _CLOSING.subn(" ", norm)
     return found > 0 and all(w in CLOSING_FILLER for w in rest.split())
+
+def _trails_off(text: str) -> bool:
+    """True if the speaker stopped mid-thought: a trailing filler, dash or ellipsis."""
+    stripped = text.rstrip()
+    if not stripped:
+        return False
+    if stripped.endswith(("-", "\u2014", "...", "\u2026")):
+        return True
+    words = _normalize(stripped).split()
+    return bool(words) and words[-1] in TRAILING_WORDS
 
 # What the conversation does after an utterance.
 FOLLOWUP = "followup"  # answered: open the follow-up window
@@ -146,6 +162,19 @@ class VoiceLoop:
         self._set("STT")
         try:
             transcript = await asyncio.to_thread(self.stt.transcribe, audio)
+            for _ in range(MAX_CONTINUATIONS):
+                if not transcript or not _trails_off(transcript):
+                    break
+                if getattr(getattr(self.recorder, "last_end", None), "reason", "") == "max_length":
+                    break  # capped (TV, music): there is no pause to wait out
+                trace("turn", "trailed off, still listening")
+                self._set("LISTEN")
+                more = await self._record(CONTINUE_TIMEOUT_S)
+                if more is None:
+                    break
+                audio = np.concatenate([audio, more])
+                self._set("STT")
+                transcript = await asyncio.to_thread(self.stt.transcribe, audio)
         except Exception as exc:
             await self._fail(exc)
             return IDLE

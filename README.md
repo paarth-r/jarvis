@@ -132,7 +132,8 @@ cameras:
 
 `jarvis-voice` is an always-on voice front-end for headless Claude Code. It listens
 for a wake word ("hey Jarvis"), records until you finish speaking (Silero VAD plus
-the smart-turn model, with a 3 s hard stop), transcribes locally with Whisper, sends
+the smart-turn model, with a 3 s hard stop; if the transcript trails off on "uh",
+"like", "and" or a dash it keeps listening for the rest), transcribes locally with Whisper, sends
 the text to a warm Claude Code session running in your vault, and speaks the reply
 sentence by sentence with Kokoro TTS. After a reply it keeps listening for 8 s so
 you can follow up without the wake word; "new conversation" starts a fresh session,

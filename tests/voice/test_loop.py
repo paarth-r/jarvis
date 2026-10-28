@@ -596,3 +596,56 @@ async def test_claude_youre_welcome_ends_the_conversation():
     await loop.run()
     assert brain.asked == ["what's due", "cheers mate, lovely stuff"]
     assert d.recorder.timeouts == [6, 8.0]
+
+
+async def test_trailing_filler_keeps_listening_and_joins_the_audio():
+    brain = FakeBrain(replies=[["Playing it."]])
+    loop, d = make([AUDIO, AUDIO], ["can you check out, uh, like-",
+                                     "can you check out, uh, like- the jazz instrumentals"],
+                   brain)
+    await loop.run()
+    assert brain.asked == ["can you check out, uh, like- the jazz instrumentals"]
+    assert d.recorder.timeouts[:2] == [6, 3.0]  # LISTEN, then the continuation
+
+
+async def test_trailing_filler_with_no_more_speech_answers_what_was_said():
+    brain = FakeBrain(replies=[["What did you want?"]])
+    loop, d = make([AUDIO], ["can you check out, um"], brain)
+    await loop.run()
+    assert brain.asked == ["can you check out, um"]
+    assert d.recorder.timeouts == [6, 3.0, 8.0]
+
+
+async def test_finished_sentence_is_not_extended():
+    brain = FakeBrain(replies=[["Done."]])
+    loop, d = make([AUDIO], ["play some jazz"], brain)
+    await loop.run()
+    assert brain.asked == ["play some jazz"]
+    assert d.recorder.timeouts == [6, 8.0]
+
+
+async def test_trailing_off_is_extended_at_most_twice():
+    brain = FakeBrain(replies=[["Hm?"]])
+    loop, d = make([AUDIO] * 4, ["so uh", "so uh and", "so uh and like", "never reached"],
+                   brain)
+    await loop.run()
+    assert brain.asked[0] == "so uh and like"  # the 4th utterance is a new follow-up
+    assert d.recorder.timeouts[:4] == [6, 3.0, 3.0, 8.0]
+
+
+async def test_capped_recording_is_not_extended():
+    brain = FakeBrain(replies=[["Okay."]])
+    loop, d = make([AUDIO, AUDIO], ["the TV keeps going and", "x"], brain)
+    d.recorder.last_end = SimpleNamespace(reason="max_length")
+    await loop.run()
+    assert brain.asked == ["the TV keeps going and"]
+
+
+@pytest.mark.parametrize("text,trails", [
+    ("check out, uh, like-", True), ("play the one with", True), ("hmm...", True),
+    ("um", True), ("play that", False), ("I like it", False), ("is it like", True),
+    ("", False),
+])
+def test_trails_off(text, trails):
+    from jarvis.voice.loop import _trails_off
+    assert _trails_off(text) is trails
