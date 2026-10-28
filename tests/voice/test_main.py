@@ -84,12 +84,14 @@ def test_build_barge_uses_its_own_vad_and_a_quarter_second_step(monkeypatch):
     assert build_barge(replace(cfg, barge_in=False)) is None
 
 
-def test_build_barge_stt_has_no_vocab_prompt():
+def test_build_barge_stt_has_no_vocab_prompt(monkeypatch):
     # Whisper can emit prompt words ("Jarvis") on noisy audio: a false stop phrase.
+    import jarvis.voice.turn as turn
     from jarvis.voice.config import VoiceConfig
     from jarvis.voice.main import build_barge
     from jarvis.voice.stt import WhisperSTT
 
+    monkeypatch.setattr(turn, "SileroVAD", lambda: object())  # no model download needed
     cfg = VoiceConfig(vault=Path("/v"), kokoro_model=Path("k"), kokoro_voices=Path("v"),
                       smart_turn_model=Path("s"), stt_model="mlx-community/whisper-x")
     stt = build_barge(cfg)._stt
