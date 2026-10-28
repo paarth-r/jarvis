@@ -91,6 +91,7 @@ TOO_LONG = (
 )
 POLICY_ERROR = "The voice permission check failed, so this action was not run."
 DISCONNECT_TIMEOUT_S = 10.0
+INTERRUPT_DRAIN_TIMEOUT_S = 5.0
 # The hook must outlive the turn: if it timed out first, the CLI would fall back
 # to settings allow rules. The turn timeout fires first and recycles the client.
 HOOK_TIMEOUT_MARGIN_S = 60.0
@@ -124,6 +125,8 @@ class Brain:
         self._warming: asyncio.Task | None = None
         self._background: set[asyncio.Task] = set()
         self._last_active = clock()
+        self._in_flight = False
+        self._interrupted = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -176,6 +179,11 @@ class Brain:
 
     # -- turns -------------------------------------------------------------
 
+    async def interrupt(self) -> None:
+        """Mark the in-flight ask interrupted; closing it then keeps the session."""
+        if self._in_flight:
+            self._interrupted = True
+
     async def ask(self, text: str) -> AsyncIterator[str]:
         """Send one user turn and yield the reply's text as it streams.
 
@@ -187,6 +195,8 @@ class Brain:
         self._last_active = self._clock()
         budget = self.cfg.turn_timeout_s
         finished = False
+        stream = None
+        self._in_flight, self._interrupted = True, False
         try:
             budget = await self._timed(client.query(text), budget)
             stream = client.receive_response().__aiter__()
@@ -245,10 +255,29 @@ class Brain:
                 f"no reply within {self.cfg.turn_timeout_s:.0f} s"
             ) from None
         finally:
+            interrupted, self._in_flight, self._interrupted = self._interrupted, False, False
+            if (not finished and interrupted and stream is not None
+                    and self._client is client):
+                finished = await self._interrupt_and_drain(client, stream)
             self._last_active = self._clock()
             if not finished and self._client is client:
                 log.warning("brain turn did not complete, recycling the client")
                 self._recycle()
+
+    async def _interrupt_and_drain(self, client: Any, stream: AsyncIterator[Any]) -> bool:
+        """Stop the turn on the CLI and read to its ResultMessage. True if clean."""
+        async def drain() -> None:
+            await client.interrupt()
+            async for msg in stream:
+                if isinstance(msg, ResultMessage):
+                    break
+
+        try:
+            await asyncio.wait_for(drain(), INTERRUPT_DRAIN_TIMEOUT_S)
+            return True
+        except Exception:
+            log.warning("could not interrupt the turn cleanly", exc_info=True)
+            return False
 
     async def _timed(self, awaitable: Awaitable[Any], budget: float) -> float:
         start = time.monotonic()
