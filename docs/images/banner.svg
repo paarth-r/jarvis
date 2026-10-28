@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-label="Jarvis: hands, eyes and voice for your Mac">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="1" stop-color="#111a33"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.78" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="#38bdf8" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+  <rect width="1280" height="340" rx="20" fill="url(#bg)"/>
+  <rect width="1280" height="340" rx="20" fill="url(#grid)"/>
+  <rect width="1280" height="340" rx="20" fill="url(#glow)"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="72" y="150" fill="#f8fafc" font-size="92" font-weight="700" letter-spacing="-2">Jarvis</text>
+    <text x="76" y="200" fill="#94a3b8" font-size="28">Hands, eyes and voice for your Mac.</text>
+    <g font-size="17" font-weight="600">
+      <rect x="76" y="236" width="118" height="36" rx="18" fill="#38bdf8" fill-opacity="0.14" stroke="#38bdf8" stroke-opacity="0.5"/>
+      <text x="135" y="260" fill="#7dd3fc" text-anchor="middle">gestures</text>
+      <rect x="206" y="236" width="132" height="36" rx="18" fill="#a78bfa" fill-opacity="0.14" stroke="#a78bfa" stroke-opacity="0.5"/>
+      <text x="272" y="260" fill="#c4b5fd" text-anchor="middle">eye tracking</text>
+      <rect x="350" y="236" width="88" height="36" rx="18" fill="#34d399" fill-opacity="0.14" stroke="#34d399" stroke-opacity="0.5"/>
+      <text x="394" y="260" fill="#6ee7b7" text-anchor="middle">voice</text>
+    </g>
+  </g>
+
+  <!-- hand landmark skeleton (MediaPipe 21-point layout), open palm -->
+  <g transform="translate(905 300) scale(1.05)" stroke="#7dd3fc" stroke-width="3.2" stroke-linecap="round" fill="none" stroke-opacity="0.9">
+    <path d="M0 0 L-62 -38 L-98 -78 L-118 -112 L-130 -140"/>
+    <path d="M0 0 L-34 -118 L-42 -170 L-47 -204 L-50 -230"/>
+    <path d="M2 -124 L4 -182 L5 -220 L6 -248"/>
+    <path d="M36 -116 L46 -168 L52 -202 L56 -228"/>
+    <path d="M0 0 L66 -96 L84 -136 L95 -162 L104 -184"/>
+    <path d="M-34 -118 L2 -124 L36 -116 L66 -96"/>
+  </g>
+  <g transform="translate(905 300) scale(1.05)" fill="#e0f2fe">
+    <circle r="6"/>
+    <circle cx="-62" cy="-38" r="5"/><circle cx="-98" cy="-78" r="5"/><circle cx="-118" cy="-112" r="5"/><circle cx="-130" cy="-140" r="5"/>
+    <circle cx="-34" cy="-118" r="5"/><circle cx="-42" cy="-170" r="5"/><circle cx="-47" cy="-204" r="5"/><circle cx="-50" cy="-230" r="5"/>
+    <circle cx="2" cy="-124" r="5"/><circle cx="4" cy="-182" r="5"/><circle cx="5" cy="-220" r="5"/><circle cx="6" cy="-248" r="5"/>
+    <circle cx="36" cy="-116" r="5"/><circle cx="46" cy="-168" r="5"/><circle cx="52" cy="-202" r="5"/><circle cx="56" cy="-228" r="5"/>
+    <circle cx="66" cy="-96" r="5"/><circle cx="84" cy="-136" r="5"/><circle cx="95" cy="-162" r="5"/><circle cx="104" cy="-184" r="5"/>
+  </g>
+
+  <!-- voice waveform -->
+  <g transform="translate(1062 170)" stroke="#34d399" stroke-width="5" stroke-linecap="round" stroke-opacity="0.85">
+    <line x1="0" y1="-10" x2="0" y2="10"/>
+    <line x1="16" y1="-26" x2="16" y2="26"/>
+    <line x1="32" y1="-44" x2="32" y2="44"/>
+    <line x1="48" y1="-30" x2="48" y2="30"/>
+    <line x1="64" y1="-56" x2="64" y2="56"/>
+    <line x1="80" y1="-34" x2="80" y2="34"/>
+    <line x1="96" y1="-18" x2="96" y2="18"/>
+    <line x1="112" y1="-38" x2="112" y2="38"/>
+    <line x1="128" y1="-14" x2="128" y2="14"/>
+    <line x1="144" y1="-6" x2="144" y2="6"/>
+  </g>
+
+  <!-- gaze reticle -->
+  <g transform="translate(1135 70)" fill="none" stroke="#a78bfa" stroke-opacity="0.85" stroke-width="2.5">
+    <circle r="22"/>
+    <circle r="7" fill="#c4b5fd" stroke="none"/>
+    <path d="M-34 0H-26M26 0H34M0 -34V-26M0 26V34" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="520" viewBox="0 0 1280 520" role="img" aria-label="Example terminal trace of a voice conversation with an interruption">
+  <defs>
+    <style>
+      text { font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace; font-size: 17px; }
+      .dim { fill: #64748b; } .tx { fill: #e2e8f0; }
+      .voice { fill: #64748b; } .turn { fill: #f59e0b; } .heard { fill: #38bdf8; }
+      .tool { fill: #a78bfa; } .result { fill: #94a3b8; } .said { fill: #34d399; } .int { fill: #f87171; }
+    </style>
+  </defs>
+  <rect width="1280" height="520" rx="16" fill="#0b1020"/>
+  <rect width="1280" height="44" rx="16" fill="#111a33"/>
+  <rect y="28" width="1280" height="16" fill="#111a33"/>
+  <circle cx="28" cy="22" r="7" fill="#f87171"/><circle cx="52" cy="22" r="7" fill="#fbbf24"/><circle cx="76" cy="22" r="7" fill="#34d399"/>
+  <text x="640" y="28" text-anchor="middle" class="dim" style="font-size:14px">jarvis-voice</text>
+
+  <text x="32" y="86"><tspan class="voice">[voice]</tspan><tspan class="tx"> IDLE -&gt; LISTEN</tspan></text>
+  <text x="32" y="114"><tspan class="turn">[turn]</tspan><tspan class="tx"> smart_turn after 0.32 s silence, smart-turn 0.97</tspan></text>
+  <text x="32" y="142"><tspan class="heard">[heard]</tspan><tspan class="tx"> Put on some jazz and tell me what's on my calendar today.</tspan></text>
+  <text x="32" y="170"><tspan class="voice">[voice]</tspan><tspan class="tx"> STT -&gt; THINK</tspan></text>
+  <text x="32" y="198"><tspan class="tool">[tool]</tspan><tspan class="tx"> Bash: play a jazz playlist on Spotify</tspan></text>
+  <text x="32" y="226"><tspan class="result">[result]</tspan><tspan class="result"> { "playing": true, "now_playing": "So What by Miles Davis" }</tspan></text>
+  <text x="32" y="254"><tspan class="tool">[tool]</tspan><tspan class="tx"> Calendar: list today's events</tspan></text>
+  <text x="32" y="282"><tspan class="voice">[voice]</tspan><tspan class="tx"> THINK -&gt; SPEAK</tspan></text>
+  <text x="32" y="310"><tspan class="said">[said]</tspan><tspan class="tx"> Jazz is on, sir: So What, by Miles Davis.</tspan></text>
+  <text x="32" y="338"><tspan class="said">[said]</tspan><tspan class="tx"> You have three things today, starting with a standup at ten, then</tspan></text>
+  <text x="32" y="366"><tspan class="int">[interrupt]</tspan><tspan class="tx"> wait</tspan></text>
+  <text x="32" y="394"><tspan class="heard">[heard]</tspan><tspan class="tx"> wait, just the afternoon.</tspan></text>
+  <text x="32" y="422"><tspan class="turn">[turn]</tspan><tspan class="tx"> smart_turn after 0.40 s silence, smart-turn 0.94</tspan></text>
+  <text x="32" y="450"><tspan class="said">[said]</tspan><tspan class="tx"> This afternoon it's just the dentist at four.</tspan></text>
+  <text x="32" y="478"><tspan class="voice">[voice]</tspan><tspan class="tx"> SPEAK -&gt; FOLLOWUP</tspan></text>
+</svg>
