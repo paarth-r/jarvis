@@ -52,6 +52,13 @@ class GestureEvent:
 
 
 @dataclass
+class StudioModeEvent:
+    # The gesture studio is recording takes: cursor control and gesture
+    # actions pause so making the gesture doesn't click or fire anything.
+    recording: bool
+
+
+@dataclass
 class PointEvent:
     world_pos: np.ndarray   # ray origin in world coords (3,)
     direction: np.ndarray   # unit vector (3,)

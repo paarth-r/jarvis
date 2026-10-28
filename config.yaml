@@ -76,6 +76,9 @@ modules:
     class: jarvis.modules.action_dispatcher.ActionDispatcher
     cooldown_s: 1.0
     on_point_action: raycast   # action fired on a pointing gesture ("" disables)
+    # Gesture -> action bindings live in ~/.jarvis/gestures.json (edit them in
+    # the gesture studio; picked up live) and override these defaults.
+    # bindings: {point: {type: keys, combo: "cmd+space"}}
   visualizer:
     class: jarvis.modules.visualizer.VisualizerModule
     enabled: false        # opt-in; set true to show windows
