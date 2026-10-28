@@ -192,6 +192,55 @@ async def test_scroll_can_be_disabled(monkeypatch):
     assert ("fist", "start") in gestures
 
 
+# --- custom gestures from the library ---
+
+from jarvis.gestures.library import GestureLibrary  # noqa: E402
+from jarvis.gestures.matcher import fit_radius, take_samples  # noqa: E402
+from tests.hand_synth import PEACE  # noqa: E402
+from tests.test_gesture_matcher import takes_of  # noqa: E402
+
+
+def _save_peace():
+    takes = takes_of(PEACE)
+    GestureLibrary().add_gesture("peace", take_samples(takes), fit_radius(takes))
+
+
+async def _hold(bus, shape, t, seconds):
+    for _ in range(int(seconds * FPS)):
+        await bus.publish(_ev(t, shape))
+        t += 1 / FPS
+    return t
+
+
+@pytest.mark.asyncio
+async def test_saved_custom_gesture_starts_and_ends(monkeypatch):
+    _save_peace()
+    bus, controller, gestures = await _setup(monkeypatch)
+    t = await _hold(bus, hand(PEACE), 0.0, 0.4)
+    await _hold(bus, hand(OPEN), t, 0.3)
+    assert gestures == [("peace", "start"), ("peace", "end")]
+
+
+@pytest.mark.asyncio
+async def test_gesture_saved_while_running_is_picked_up(monkeypatch):
+    bus, controller, gestures = await _setup(monkeypatch, gestures={"reload_s": 0.0})
+    t = await _hold(bus, hand(PEACE), 0.0, 0.3)
+    assert gestures == []
+    _save_peace()
+    await _hold(bus, hand(PEACE), t, 0.3)
+    assert ("peace", "start") in gestures
+
+
+@pytest.mark.asyncio
+async def test_custom_gesture_locks_out_pinch(monkeypatch):
+    _save_peace()
+    bus, controller, gestures = await _setup(monkeypatch)
+    t = await _hold(bus, hand(PEACE), 0.0, 0.3)
+    await bus.publish(_ev(t, hand(PEACE), pinch_m=0.01))
+    await bus.publish(_ev(t + 0.05, hand(PEACE)))
+    assert "click" not in _kinds(controller)
+
+
 # --- PinchFSM lock ---
 
 def test_locked_fsm_ignores_pinches_until_the_thumb_opens():

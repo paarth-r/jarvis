@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import time
 from enum import Enum
 from typing import Optional
 
@@ -8,7 +9,9 @@ import numpy as np
 from ..events import GestureEvent, WorldPoseEvent, IntentEvent
 from ..gestures.builtins import is_fist
 from ..gestures.engine import GestureEngine, GestureFrame
-from ..gestures.features import palm_frame
+from ..gestures.features import features, palm_frame
+from ..gestures.library import GestureLibrary
+from ..gestures.matcher import Matcher
 from ..gestures.tilt_scroll import TiltScroller
 from ..runtime.module_base import Module
 from .trackpad import TrackpadMapper
@@ -136,7 +139,14 @@ class GestureHCIModule(Module):
         self._clutched = False
         # One gesture at a time (see jarvis/gestures/engine.py). Fist holds
         # the cursor; any active gesture locks out pinch.
-        self.engine = GestureEngine(self.config.get("gestures", {}) or {})
+        gcfg = self.config.get("gestures", {}) or {}
+        self.engine = GestureEngine(gcfg)
+        # Custom gestures from ~/.jarvis/gestures.json, re-read when the
+        # studio saves (checked every reload_s).
+        self.library = GestureLibrary(gcfg.get("library_path"))
+        self._reload_s: float = gcfg.get("reload_s", 0.5)
+        self._last_reload = time.perf_counter()
+        self._load_matcher()
         scroll = dict(self.config.get("scroll", {}) or {})
         self._scroll_enabled: bool = scroll.pop("enabled", True)
         self._scroller = TiltScroller(**scroll)
@@ -152,10 +162,21 @@ class GestureHCIModule(Module):
         else:
             await self._on_pose_absolute(event, hold)
 
+    def _load_matcher(self) -> None:
+        self.matcher = Matcher.from_library(self.library)
+        self.engine.matcher = (
+            (lambda shape: self.matcher.match(features(shape))) if len(self.matcher) else None
+        )
+
     async def _arbitrate(self, event: WorldPoseEvent) -> bool:
         """Run the gesture engine, publish start/end, lock pinch out while a
         gesture owns the hand. Returns True when the cursor should hold still
         (a fist, from its first frame, before its dwell completes)."""
+        now = time.perf_counter()
+        if now - self._last_reload >= self._reload_s:
+            self._last_reload = now
+            if self.library.reload_if_changed():
+                self._load_matcher()
         pinch_state = self._fsm.state
         frame = self.engine.update(
             event.hand_shape, "open" if pinch_state == "locked" else pinch_state,
