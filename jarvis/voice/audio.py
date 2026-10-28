@@ -99,6 +99,7 @@ class Player:
         self._lock = threading.Lock()
         self._buf = np.zeros(0, np.float32)
         self._pos = 0
+        self._played = 0
         self._drained = threading.Event()
         self._drained.set()
 
@@ -109,6 +110,7 @@ class Player:
             outdata[n:, 0] = 0.0
             self._pos += n
             if self._pos >= len(self._buf):
+                self._played = len(self._buf)
                 self._drained.set()
 
     def _rate(self) -> int:
@@ -126,7 +128,8 @@ class Player:
         self._stream.start()
         self._sr = sr
 
-    async def play(self, samples: np.ndarray, sr: int) -> None:
+    async def play(self, samples: np.ndarray, sr: int) -> float:
+        """Play a clip; returns the fraction played (less than 1.0 if stopped)."""
         data = np.asarray(samples)
         if data.dtype == np.int16:
             data = data.astype(np.float32) / 32768.0
@@ -144,7 +147,7 @@ class Player:
             self._idle = None
         self._ensure_stream(rate)
         with self._lock:
-            self._buf, self._pos = data, 0
+            self._buf, self._pos, self._played = data, 0, 0
             self._drained.clear()
         try:
             await asyncio.to_thread(self._drained.wait, len(data) / rate + 5.0)
@@ -158,9 +161,12 @@ class Player:
             if self._stream is not None:
                 self._idle = asyncio.get_running_loop().call_later(
                     self._idle_close_s, self._close_stream)
+        with self._lock:
+            return min(1.0, self._played / len(data)) if len(data) else 1.0
 
     def stop(self) -> None:
         with self._lock:
+            self._played = min(self._pos, len(self._buf))
             self._pos = len(self._buf)
             self._drained.set()
 
