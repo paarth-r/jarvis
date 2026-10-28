@@ -729,7 +729,7 @@ async def test_ducker_failure_never_fails_the_turn():
 class HungDucker(FakeDucker):
     """duck() blocks like osascript waiting on a hung Spotify."""
 
-    def __init__(self, player, block_s=0.6) -> None:
+    def __init__(self, player, block_s=1.2) -> None:
         super().__init__(player)
         self.block_s = block_s
         self.finished_at: list[float] = []
