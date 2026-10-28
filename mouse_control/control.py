@@ -267,6 +267,14 @@ class MouseController:
         event = CGEventCreateScrollWheelEvent(None, 0, 1, scroll_delta)
         CGEventPost(kCGHIDEventTap, event)
 
+    def scroll_px(self, dx: int, dy: int) -> None:
+        """Smooth pixel scroll. dy > 0 scrolls down the page, dx > 0 right."""
+        if not _QUARTZ_AVAILABLE or (dx == 0 and dy == 0):
+            return
+        # units 0 = kCGScrollEventUnitPixel; wheel1 vertical (+ = up), wheel2 horizontal (+ = left)
+        event = CGEventCreateScrollWheelEvent(None, 0, 2, int(-dy), int(-dx))
+        CGEventPost(kCGHIDEventTap, event)
+
     @property
     def is_mouse_down(self) -> bool:
         return self._mouse_down

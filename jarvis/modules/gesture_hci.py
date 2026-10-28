@@ -8,6 +8,8 @@ import numpy as np
 from ..events import GestureEvent, WorldPoseEvent, IntentEvent
 from ..gestures.builtins import is_fist
 from ..gestures.engine import GestureEngine, GestureFrame
+from ..gestures.features import palm_frame
+from ..gestures.tilt_scroll import TiltScroller
 from ..runtime.module_base import Module
 from .trackpad import TrackpadMapper
 from .box_mapper import BoxMapper
@@ -135,6 +137,9 @@ class GestureHCIModule(Module):
         # One gesture at a time (see jarvis/gestures/engine.py). Fist holds
         # the cursor; any active gesture locks out pinch.
         self.engine = GestureEngine(self.config.get("gestures", {}) or {})
+        scroll = dict(self.config.get("scroll", {}) or {})
+        self._scroll_enabled: bool = scroll.pop("enabled", True)
+        self._scroller = TiltScroller(**scroll)
         self.last_frame: Optional[GestureFrame] = None
         self.bus.subscribe(WorldPoseEvent, self._on_pose)
 
@@ -164,7 +169,30 @@ class GestureHCIModule(Module):
         fist = frame.active == "fist" or frame.candidate == "fist"
         if (fist or frame.active is not None) and self._fsm.state != "dragging":
             self._fsm.lock()
+        await self._scroll(frame, event)
         return fist
+
+    async def _scroll(self, frame: GestureFrame, event: WorldPoseEvent) -> None:
+        """Fist, then tilt: scroll speed follows the tilt from the angle the
+        fist started at. Only frames that still look like a fist scroll, so
+        the release grace and tracking dropouts don't."""
+        if frame.ended == "fist":
+            self._scroller.stop()
+        if not self._scroll_enabled:
+            return
+        if frame.started == "fist":
+            self._scroller.start(palm_frame(event.hand_shape), event.timestamp)
+        if frame.candidate != "fist" or not self._scroller.active:
+            return
+        dx, dy = self._scroller.update(palm_frame(event.hand_shape), event.timestamp)
+        if dx or dy:
+            self._controller.scroll_px(dx, dy)
+            await self.bus.publish(IntentEvent(
+                type="scroll", confidence=event.confidence,
+                payload={"dx": dx, "dy": dy, "pitch": self._scroller.pitch,
+                         "roll": self._scroller.roll},
+                timestamp=event.timestamp,
+            ))
 
     async def _on_pose_box(self, event: WorldPoseEvent, hold: bool = False) -> None:
         lm = event.landmarks_3d

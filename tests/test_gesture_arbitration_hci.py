@@ -131,6 +131,67 @@ async def test_no_hand_shape_keeps_legacy_behaviour(monkeypatch):
     assert _kinds(controller).count("click") == 1 and gestures == []
 
 
+# --- fist-tilt scroll ---
+
+from tests.hand_synth import rotation  # noqa: E402
+
+_SCROLL = {"scroll": {"smoothing": 1.0, "curve": 1.0, "deadzone_deg": 8,
+                      "full_deg": 35, "max_px_s": 3000}}
+
+
+def _fist(pitch_deg=0.0):
+    return hand(FIST, R=rotation(pitch=np.radians(pitch_deg)))
+
+
+def _scrolled(controller):
+    return sum(c[2] for c in controller.calls if c[0] == "scroll_px")
+
+
+@pytest.mark.asyncio
+async def test_fist_then_tilt_scrolls_and_opening_stops_it(monkeypatch):
+    bus, controller, gestures = await _setup(monkeypatch, **_SCROLL)
+    t = 0.0
+    for _ in range(6):                       # fist, level: activates, no scroll
+        await bus.publish(_ev(t, _fist(0)))
+        t += 1 / FPS
+    assert _scrolled(controller) == 0
+    for _ in range(30):                      # tip forward 25 deg for 1 s
+        await bus.publish(_ev(t, _fist(25)))
+        t += 1 / FPS
+    down = _scrolled(controller)
+    assert 1500 < down < 3000
+    for _ in range(10):                      # open the hand
+        await bus.publish(_ev(t, hand(OPEN)))
+        t += 1 / FPS
+    after = _scrolled(controller)
+    assert after - down < 300                # only the release-grace frames
+    for _ in range(10):
+        await bus.publish(_ev(t, hand(OPEN)))
+        t += 1 / FPS
+    assert _scrolled(controller) == after
+
+
+@pytest.mark.asyncio
+async def test_scroll_angle_is_measured_from_the_fist_start(monkeypatch):
+    bus, controller, gestures = await _setup(monkeypatch, **_SCROLL)
+    t = 0.0
+    for _ in range(40):                      # fist made already tipped 25 deg
+        await bus.publish(_ev(t, _fist(25)))
+        t += 1 / FPS
+    assert _scrolled(controller) == 0
+
+
+@pytest.mark.asyncio
+async def test_scroll_can_be_disabled(monkeypatch):
+    bus, controller, gestures = await _setup(monkeypatch, scroll={"enabled": False})
+    t = 0.0
+    for p in [0] * 6 + [25] * 30:
+        await bus.publish(_ev(t, _fist(p)))
+        t += 1 / FPS
+    assert _scrolled(controller) == 0
+    assert ("fist", "start") in gestures
+
+
 # --- PinchFSM lock ---
 
 def test_locked_fsm_ignores_pinches_until_the_thumb_opens():
