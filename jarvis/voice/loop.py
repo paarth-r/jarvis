@@ -94,12 +94,15 @@ def _only_stop_phrases(text: str, phrases: tuple[str, ...]) -> bool:
 
 
 def _trails_off(text: str) -> bool:
-    """True if the speaker stopped mid-thought: a trailing filler, dash or ellipsis."""
+    """True if the speaker stopped mid-thought: a dash or ellipsis, or a trailing
+    filler with no full stop, question mark or exclamation mark after it."""
     stripped = text.rstrip()
     if not stripped:
         return False
     if stripped.endswith(("-", "\u2014", "...", "\u2026")):
         return True
+    if stripped.endswith((".", "?", "!")):
+        return False  # Whisper ended the sentence: "What's the weather like?" is finished
     words = _normalize(stripped).split()
     return bool(words) and words[-1] in TRAILING_WORDS
 

@@ -645,6 +645,11 @@ async def test_capped_recording_is_not_extended():
     ("check out, uh, like-", True), ("play the one with", True), ("hmm...", True),
     ("um", True), ("play that", False), ("I like it", False), ("is it like", True),
     ("", False),
+    ("What's the weather like?", False), ("What does it look like?", False),
+    ("Who is that for?", False), ("What should I listen to?", False),
+    ("play the one with.", False), ("Turn it up and!", False),
+    ("I was thinking, um,", True), ("check out, uh, like-", True),
+    ("play the one with", True), ("so like\u2026", True),
 ])
 def test_trails_off(text, trails):
     from jarvis.voice.loop import _trails_off
