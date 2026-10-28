@@ -67,5 +67,8 @@ def load_config(example: Path, local: Path | None) -> VoiceConfig:
         if raw[key] is not None:
             raw[key] = Path(raw[key]).expanduser()
     if raw.get("stop_phrases") is not None:
-        raw["stop_phrases"] = tuple(str(p) for p in raw["stop_phrases"])
+        # A bare no / yes in YAML is a boolean: map it back to the word.
+        raw["stop_phrases"] = tuple(
+            ("yes" if p else "no") if isinstance(p, bool) else str(p)
+            for p in raw["stop_phrases"])
     return VoiceConfig(**raw)

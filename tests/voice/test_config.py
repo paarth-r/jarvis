@@ -75,3 +75,9 @@ def test_stop_phrases_yaml_list_becomes_a_tuple(tmp_path: Path) -> None:
     cfg = load_config(ex, None)
     assert cfg.stop_phrases == ("wait", "hold up")
     assert cfg.barge_in is False
+
+
+def test_unquoted_yes_and_no_in_stop_phrases_stay_words(tmp_path: Path) -> None:
+    # YAML 1.1 reads a bare no / yes as a boolean.
+    ex = _write(tmp_path / "ex.yaml", BASE + "stop_phrases: [wait, no, yes]\n")
+    assert load_config(ex, None).stop_phrases == ("wait", "no", "yes")
