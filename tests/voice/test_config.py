@@ -61,3 +61,17 @@ def test_duck_defaults():
     cfg = load_config(Path(__file__).resolve().parents[2] / "config.voice.example.yaml", None)
     assert cfg.duck_music is True
     assert cfg.duck_ratio == 0.2
+
+
+def test_barge_in_defaults():
+    cfg = load_config(Path(__file__).resolve().parents[2] / "config.voice.example.yaml", None)
+    assert cfg.barge_in is True
+    assert cfg.stop_phrases == ("wait", "no", "stop", "hold up", "hang on", "hold on",
+                                "nevermind", "never mind", "jarvis")
+
+
+def test_stop_phrases_yaml_list_becomes_a_tuple(tmp_path: Path) -> None:
+    ex = _write(tmp_path / "ex.yaml", BASE + "stop_phrases: [wait, hold up]\nbarge_in: false\n")
+    cfg = load_config(ex, None)
+    assert cfg.stop_phrases == ("wait", "hold up")
+    assert cfg.barge_in is False

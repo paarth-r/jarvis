@@ -138,8 +138,9 @@ the text to a warm Claude Code session running in your vault, and speaks the rep
 sentence by sentence with Kokoro TTS. After a reply it keeps listening for 8 s so
 you can follow up without the wake word; "new conversation" starts a fresh session,
 and "nevermind" (or "cancel", "stop", "forget it") drops the conversation. A goodbye ("thanks", "sounds good",
-"that's all") ends the follow-up too, unless it answers a question it just asked. It cannot
-hear you while it is talking (the mic is muted to avoid hearing itself).
+"that's all") ends the follow-up too, unless it answers a question it just asked. While it
+is talking you can cut it off with "wait" or "hold up" (see Barge-in below); otherwise the
+mic is muted while it speaks so it never hears itself.
 A small room MCP server (`list_devices`, `get_state`, `set_state`) lets Claude drive
 devices through an HTTP room API. It is separate from the vision runtime and has its
 own environment (`.venv-voice`, Python 3.12, Apple silicon for STT today).
@@ -192,7 +193,8 @@ AppleScript can only start a track, album, playlist or artist.
 
 Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),
 `[thinking]` (Claude's thinking, when it streams any), `[tool]` / `[result]` (each
-tool call and its outcome), `[said]` (each spoken sentence) and `[turn]` (why your
+tool call and its outcome), `[said]` (each spoken sentence), `[interrupt]` (the stop
+phrase that cut a reply off) and `[turn]` (why your
 turn ended: `smart_turn`, `hard_silence` or `max_length`, with the pause length and
 the smart-turn score).
 
@@ -218,6 +220,23 @@ If you change an app's volume while it is ducked, your choice is kept. Levels ar
 saved to `~/.jarvis/voice/duck.json` while ducked, so a crash cannot leave music
 low: the next start restores them. Set `duck_music: false` to turn it off. macOS has
 no per-app volume API, so only Spotify and Apple Music can be ducked.
+
+### Barge-in
+
+Say "wait", "no", "hold up", "hang on", "hold on" or "jarvis" while Jarvis is reading
+a reply and it stops at once, drops the rest of Claude's answer without losing the
+Claude session, and listens for what you say next. That next turn goes to Claude with a
+note of roughly where it was cut off, based on how much of the sentence actually played.
+A stop phrase on its own ("wait", "hold up") just stops it and leaves it listening; "stop"
+or "nevermind" still ends the conversation with "Okay.".
+
+There is no echo cancellation: the mic listens while Jarvis speaks, so a phrase counts
+only if it is not in the sentence being spoken (Jarvis saying "no problem" cannot stop
+itself). Detection is word-based (Whisper on the last couple of seconds), so expect about
+half a second before it stops. Only reply sentences can be interrupted: confirmation
+questions, tones and error messages still play with the mic muted, and interrupting
+while Claude is still thinking (before it starts speaking) is not covered yet. Set
+`barge_in: false` to keep the mic muted for all playback, or change `stop_phrases`.
 
 ### Confirmation rules
 

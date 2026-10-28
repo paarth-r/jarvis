@@ -719,3 +719,221 @@ async def test_ducker_failure_never_fails_the_turn():
     loop, d = make_ducked([AUDIO], ["what's due"], brain, ducker)
     await loop.run()
     assert d.player.played == ["tone:wake", "Report is due."]
+
+
+# -- barge-in ---------------------------------------------------------------
+
+from jarvis.voice.bargein import BargeIn  # noqa: E402
+
+
+class FakeBarge:
+    """Scripted listener: one entry per listened sentence, a BargeIn or None."""
+
+    def __init__(self, hits=()) -> None:
+        self.hits = list(hits)
+        self.speaking: list[str] = []
+
+    async def listen(self, frames, speaking, done):
+        self.speaking.append(speaking())
+        hit = self.hits.pop(0) if self.hits else None
+        if hit is None:
+            await done.wait()
+            return None
+        await asyncio.sleep(0)  # playback has started
+        return hit
+
+
+class BargePlayer(FakePlayer):
+    """Plays take a little real time; stop() cuts the clip at `fraction`."""
+
+    def __init__(self, mic: FakeMic, fraction: float = 0.5) -> None:
+        super().__init__(mic)
+        self.fraction = fraction
+        self.stops = 0
+        self._stopped = asyncio.Event()
+
+    async def play(self, samples, sr) -> float:
+        await super().play(samples, sr)
+        self._stopped.clear()
+        try:
+            await asyncio.wait_for(self._stopped.wait(), 0.05)
+        except TimeoutError:
+            return 1.0
+        return self.fraction
+
+    def stop(self) -> None:
+        self.stops += 1
+        self._stopped.set()
+
+
+class InterruptBrain(FakeBrain):
+    def __init__(self, replies=None) -> None:
+        super().__init__(replies)
+        self.events: list[str] = []
+
+    async def interrupt(self) -> None:
+        self.events.append("interrupt")
+
+    async def ask(self, text):
+        try:
+            async for delta in super().ask(text):
+                yield delta
+        finally:
+            self.events.append("closed")
+
+
+class LengthSTT(FakeSTT):
+    def __init__(self, transcripts) -> None:
+        super().__init__(transcripts)
+        self.lengths: list[int] = []
+
+    def transcribe(self, audio):
+        self.lengths.append(len(audio))
+        return super().transcribe(audio)
+
+
+CAPTURED = np.ones(800, dtype=np.int16)
+STORY = ["One two three four. Second", " sentence."]
+PREFIX = '(You were interrupted after saying: "One two". The rest was not heard.) '
+
+
+def make_barge(utterances, transcripts, brain, hits=(), fraction=0.5):
+    loop, d = make(utterances, transcripts, brain)
+    d.player = loop.player = BargePlayer(d.mic, fraction)
+    d.barge = loop.barge = FakeBarge(hits)
+    d.stt = loop.stt = LengthSTT(transcripts)
+    return loop, d
+
+
+async def test_barge_in_stops_playback_and_the_rest_of_the_reply(capsys):
+    brain = InterruptBrain([STORY, ["Dogs are great."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "wait, what about dogs"], brain,
+                         hits=[BargeIn("wait", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.stops == 1
+    assert d.player.played == ["tone:wake", "One two three four.", "Dogs are great."]
+    # Interrupted before the ask was closed, so the brain keeps its session.
+    assert brain.events[:2] == ["interrupt", "closed"]
+    assert brain.asked == ["tell me a story", PREFIX + "wait, what about dogs"]
+    # Only what was actually played is logged; the prefix never reaches the log.
+    assert d.log.turns == [("tell me a story", "One two"),
+                           ("wait, what about dogs", "Dogs are great.")]
+    # The continuation is recorded with the follow-up timeout, joined to the captured audio.
+    assert d.recorder.timeouts == [6, 8.0, 8.0]
+    assert d.stt.lengths == [len(AUDIO), len(CAPTURED) + len(AUDIO)]
+    err = capsys.readouterr().err
+    assert "[interrupt] wait" in err
+    assert "[heard] wait, what about dogs" in err
+    assert "interrupted after saying" not in err
+
+
+async def test_stop_words_alone_open_the_followup_silently():
+    brain = InterruptBrain([STORY, ["Dogs are great."]])
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["tell me a story", "hold up, wait", "dogs?"],
+                         brain, hits=[BargeIn("hold up", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One two three four.", "Dogs are great."]
+    assert d.recorder.timeouts == [6, 8.0, 8.0, 8.0]
+    # Claude still learns where it was cut off, on the turn that reaches it.
+    assert brain.asked == ["tell me a story", PREFIX + "dogs?"]
+
+
+async def test_jarvis_alone_after_an_interrupt_opens_the_followup_silently():
+    brain = InterruptBrain([STORY, ["Sure."]])
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["tell me a story", "Jarvis.", "go on"],
+                         brain, hits=[BargeIn("jarvis", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One two three four.", "Sure."]
+    assert brain.asked == ["tell me a story", PREFIX + "go on"]
+
+
+async def test_cancel_after_an_interrupt_uses_cancel_handling():
+    brain = InterruptBrain([STORY, ["unused"]])
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["tell me a story", "stop", "never heard"],
+                         brain, hits=[BargeIn("stop", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One two three four.", "Okay."]
+    assert brain.asked == ["tell me a story"]
+    assert d.recorder.timeouts == [6, 8.0]
+
+
+async def test_silence_after_an_interrupt_ends_the_conversation():
+    brain = InterruptBrain([STORY])
+    loop, d = make_barge([AUDIO], ["tell me a story"], brain, hits=[BargeIn("wait", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.recorder.timeouts == [6, 8.0]
+    assert brain.asked == ["tell me a story"]
+
+
+async def test_reply_plays_unmuted_while_listening_for_stop_words():
+    brain = FakeBrain([["One. Two."]])
+    loop, d = make_barge([AUDIO], ["count"], brain)
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One.", "Two."]
+    assert d.player.muted_flags == [True, False, False]  # the wake tone stays muted
+    assert d.barge.speaking == ["One.", "Two."]  # echo check sees the current sentence
+    # Wake tone, then per sentence: drop frames queued while thinking, and a 0.3 s tail.
+    assert d.mic.mute_calls == 5
+    assert d.player.stops == 0
+
+
+async def test_barge_none_keeps_every_playback_muted():
+    brain = FakeBrain([["One. Two."]])
+    loop, d = make([AUDIO], ["count"], brain)
+    assert loop.barge is None
+    await loop.run()
+    assert all(d.player.muted_flags)
+
+
+async def test_confirmation_questions_are_never_barge_in_able():
+    brain = ConfirmingBrain()
+    loop, d = make_barge([AUDIO, AUDIO], ["email Sam", "yes"], brain)
+    brain.confirm = loop.confirm
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "Send it?", "Sent."]
+    assert d.player.muted_flags == [True, True, False]
+    assert d.barge.speaking == ["Sent."]
+
+
+async def test_error_messages_are_never_barge_in_able():
+    brain = FakeBrain(error=RuntimeError("boom"))
+    loop, d = make_barge([AUDIO], ["what's due"], brain)
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played[1:] == ["tone:error", "Sorry, something broke: RuntimeError."]
+    assert all(d.player.muted_flags)
+    assert d.barge.speaking == []
+
+
+async def test_music_restored_after_an_interrupted_conversation():
+    brain = InterruptBrain([STORY, ["Dogs are great."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "wait, dogs"], brain,
+                         hits=[BargeIn("wait", CAPTURED)])
+    ducker = loop.ducker = FakeDucker()
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert ducker.events[0] == "duck"
+    assert ducker.events[-1] == "restore"
+    assert ducker.events.count("restore") == 1
+
+
+async def test_interrupted_before_any_word_was_heard():
+    brain = InterruptBrain([STORY, ["Okay, dogs."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "no, dogs"], brain,
+                         hits=[BargeIn("no", CAPTURED)], fraction=0.0)
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert brain.asked[1] == ("(You were interrupted before saying anything. "
+                              "The rest was not heard.) no, dogs")
+    assert d.log.turns[0] == ("tell me a story", "")
+
+
+class BrokenBarge(FakeBarge):
+    async def listen(self, frames, speaking, done):
+        raise RuntimeError("vad died")
+
+
+async def test_listener_failure_never_fails_the_reply():
+    brain = FakeBrain([["One. Two."]])
+    loop, d = make_barge([AUDIO], ["count"], brain)
+    loop.barge = BrokenBarge()
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One.", "Two."]
+    assert d.log.turns == [("count", "One. Two.")]

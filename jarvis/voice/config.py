@@ -11,6 +11,8 @@ PATH_FIELDS = {
     "vault", "wake_models_dir", "vocab_file", "kokoro_model", "kokoro_voices",
     "smart_turn_model", "data_dir",
 }
+DEFAULT_STOP_PHRASES = ("wait", "no", "stop", "hold up", "hang on", "hold on",
+                        "nevermind", "never mind", "jarvis")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +42,8 @@ class VoiceConfig:
     idle_reset_s: float = 600.0
     duck_music: bool = True
     duck_ratio: float = 0.2
+    barge_in: bool = True
+    stop_phrases: tuple[str, ...] = DEFAULT_STOP_PHRASES
     data_dir: Path = Path("~/.jarvis/voice").expanduser()
     input_device: str | int | None = None
     output_device: str | int | None = None
@@ -62,4 +66,6 @@ def load_config(example: Path, local: Path | None) -> VoiceConfig:
     for key in PATH_FIELDS & raw.keys():
         if raw[key] is not None:
             raw[key] = Path(raw[key]).expanduser()
+    if raw.get("stop_phrases") is not None:
+        raw["stop_phrases"] = tuple(str(p) for p in raw["stop_phrases"])
     return VoiceConfig(**raw)

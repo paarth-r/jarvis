@@ -67,6 +67,21 @@ class Deps:
     tts: object
     log: object
     brain: object
+    barge: object = None
+
+
+def build_barge(cfg: VoiceConfig, stt: object) -> object:
+    """The stop-phrase listener, or None when barge-in is off.
+
+    It gets its own VAD so its recurrent state never mixes with the recorder's.
+    """
+    if not cfg.barge_in:
+        return None
+    from jarvis.voice import turn
+    from jarvis.voice.bargein import BargeInListener
+
+    # Whisper takes ~90 ms per 2 s window here: a 0.25 s step keeps a stop under ~0.65 s.
+    return BargeInListener(turn.SileroVAD(), stt, cfg.stop_phrases, step_s=0.25)
 
 
 def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
@@ -98,6 +113,7 @@ def build_deps(cfg: VoiceConfig, room: bool) -> Deps:
         tts=tts,
         log=VoiceLog(cfg.vault, cfg.data_dir),
         brain=Brain(cfg, extra_mcp=extra_mcp),
+        barge=build_barge(cfg, stt),
     )
 
 
@@ -118,7 +134,7 @@ async def run(cfg: VoiceConfig, room: bool) -> None:
         ducker = MusicDucker(state_path=cfg.data_dir / "duck.json", ratio=cfg.duck_ratio)
         await asyncio.to_thread(ducker.recover)  # a crashed run may have left music low
     loop = VoiceLoop(d.mic, d.player, d.wake, d.recorder, d.stt, d.brain, d.tts,
-                     d.log, cfg, ducker=ducker)
+                     d.log, cfg, ducker=ducker, barge=d.barge)
     d.brain.confirm = loop.confirm  # type: ignore[attr-defined]
     try:
         print("[voice] starting brain", file=sys.stderr, flush=True)

@@ -35,6 +35,10 @@ idle_reset_s: 600.0
 # Lower Spotify / Music app volume to duck_ratio of its level while Jarvis is engaged.
 duck_music: true
 duck_ratio: 0.2
+# Say a stop phrase while Jarvis is talking to cut it off. A phrase counts only if
+# it is not in the sentence being spoken (so Jarvis cannot stop itself).
+barge_in: true
+stop_phrases: [wait, "no", stop, hold up, hang on, hold on, nevermind, never mind, jarvis]
 data_dir: ~/.jarvis/voice
 input_device: null
 output_device: null

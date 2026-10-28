@@ -3,8 +3,10 @@
 Every dependency is injected so tests run on fakes. One shared frames iterator
 serves the whole run (the mic queue is single-consumer): IDLE pulls frames for
 wake detection, and the same iterator is handed to the recorder for LISTEN,
-FOLLOWUP and spoken confirmations. All playback happens under ``mic.mute(0.3)``
-so the assistant never hears (or wakes on) its own voice.
+FOLLOWUP and spoken confirmations. Playback happens under ``mic.mute(0.3)``
+so the assistant never hears (or wakes on) its own voice, except reply sentences
+when a barge-in listener is set: those play unmuted while it listens on the same
+iterator for a stop phrase ("wait", "hold up") that cuts the reply off.
 """
 from __future__ import annotations
 
@@ -20,6 +22,7 @@ import numpy as np
 
 from jarvis.voice.audio import tone
 from jarvis.voice.brain import BrainTimeout
+from jarvis.voice.config import DEFAULT_STOP_PHRASES
 from jarvis.voice.intent import judge_approval
 from jarvis.voice.trace import trace
 from jarvis.voice.speech import SentenceSplitter, to_speakable
@@ -53,6 +56,8 @@ CLOSING_PHRASES = (
 )
 CLOSING_FILLER = {"jarvis", "claude", "hey", "sir", "man", "bro", "dude", "so", "much",
                   "very", "a", "lot", "then", "yeah", "yep", "and", "for", "that", "now"}
+# Said around stop phrases ("uh, wait"), these still leave nothing for Claude.
+STOP_FILLER = {"uh", "um", "umm", "oh", "ah", "hey", "sir"}
 _CLOSING = re.compile(r"\b(" + "|".join(sorted(map(re.escape, CLOSING_PHRASES), key=len,
                                                reverse=True)) + r")\b")
 
@@ -70,6 +75,15 @@ def _is_closing(text: str) -> bool:
     rest, found = _CLOSING.subn(" ", norm)
     return found > 0 and all(w in CLOSING_FILLER for w in rest.split())
 
+
+def _only_stop_phrases(text: str, phrases: tuple[str, ...]) -> bool:
+    words = f" {_normalize(text)} "
+    for phrase in sorted(map(_normalize, phrases), key=len, reverse=True):
+        if phrase:
+            words = words.replace(f" {phrase} ", " ")
+    return all(w in STOP_FILLER for w in words.split())
+
+
 def _trails_off(text: str) -> bool:
     """True if the speaker stopped mid-thought: a trailing filler, dash or ellipsis."""
     stripped = text.rstrip()
@@ -84,6 +98,15 @@ def _trails_off(text: str) -> bool:
 FOLLOWUP = "followup"  # answered: open the follow-up window
 WAKE_ONLY = "wake"  # only the wake phrase was heard
 IDLE = "idle"  # nothing to do, or the turn failed
+INTERRUPTED = "interrupted"  # a stop phrase cut the reply off: record the rest
+
+
+class Interrupted(Exception):
+    """A stop phrase was heard during a reply sentence."""
+
+    def __init__(self, audio: np.ndarray) -> None:
+        super().__init__("interrupted")
+        self.audio = audio  # the user's speech so far, from where the phrase began
 
 
 def _normalize(text: str) -> str:
@@ -93,7 +116,7 @@ def _normalize(text: str) -> str:
 class VoiceLoop:
     def __init__(self, mic: Any, player: Any, wake: Any, recorder: Any, stt: Any,
                  brain: Any, tts: Any, log: Any, cfg: Any, judge: Any = None,
-                 ducker: Any = None) -> None:
+                 ducker: Any = None, barge: Any = None) -> None:
         self.mic = mic
         self.player = player
         self.wake = wake
@@ -105,12 +128,15 @@ class VoiceLoop:
         self.cfg = cfg
         self.judge = judge or judge_approval  # (question, answer) -> approved?
         self.ducker = ducker  # lowers other apps' music while engaged; None = off
+        self.barge = barge  # stop-phrase listener for reply sentences; None = always muted
         self.state = "IDLE"
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._audio_lock = asyncio.Lock()
         self._working: asyncio.Task[None] | None = None
         self._said: list[str] = []
         self._turn_active = False
+        self._cut: str | None = None  # what Claude's reply got out before an interrupt
+        self._interrupt: Interrupted | None = None
 
     # -- main loop ---------------------------------------------------------
 
@@ -147,11 +173,22 @@ class VoiceLoop:
             await self._restore()
 
     async def _converse(self) -> None:
+        self._cut, self._interrupt = None, None
         self._set("LISTEN")
         audio = await self._record(LISTEN_TIMEOUT_S)
         in_followup = False
         while audio is not None:
             outcome = await self._process(audio)
+            if outcome == INTERRUPTED:
+                # The user is still talking: record the rest after what was captured.
+                captured = self._interrupt.audio  # type: ignore[union-attr]
+                self._set("LISTEN")
+                more = await self._record(self.cfg.followup_s)
+                if more is None:
+                    return
+                audio = np.concatenate([captured, more])
+                in_followup = True
+                continue
             if outcome == WAKE_ONLY and in_followup:
                 # "Hey Jarvis" alone in the follow-up window is a fresh wake.
                 await self._tone("wake")
@@ -209,7 +246,11 @@ class VoiceLoop:
         self._archive(audio, transcript)
         trace("heard", transcript or "(nothing)")
         text = strip_wake_phrase(transcript) if transcript else ""
+        after_cut = self._interrupt is not None
+        self._interrupt = None
         if not text:
+            if after_cut:
+                return FOLLOWUP  # "Jarvis" alone: it stopped, now it listens
             return WAKE_ONLY if transcript else IDLE
         if _is_cancel(text):
             await self._say("Okay.")
@@ -226,6 +267,9 @@ class VoiceLoop:
                 await self._say(reply)
             self._log_turn(text, reply)
             return IDLE
+        if after_cut and _only_stop_phrases(
+                text, getattr(self.cfg, "stop_phrases", DEFAULT_STOP_PHRASES)):
+            return FOLLOWUP  # "wait" / "hold up": it stopped, now it listens
 
         self._said = []
         outcome = FOLLOWUP
@@ -239,9 +283,13 @@ class VoiceLoop:
                 await self.brain.reset()
                 await self._say("Okay, fresh start.")
             else:
-                await self._answer(text)
+                await self._answer(self._cut_note() + text)
                 if _normalize(" ".join(self._said)) in DISMISSED_REPLIES:
                     outcome = IDLE  # Claude read it as a brush-off: end the conversation
+        except Interrupted as exc:
+            self._interrupt = exc
+            self._cut = " ".join(self._said)
+            outcome = INTERRUPTED
         except Exception as exc:
             outcome = IDLE
             await self._fail(exc)
@@ -250,6 +298,15 @@ class VoiceLoop:
             await self._stop_working_tone()
         self._log_turn(text, " ".join(self._said))
         return outcome
+
+    def _cut_note(self) -> str:
+        """Tell Claude where its last reply was cut off (once, on the next turn)."""
+        cut, self._cut = self._cut, None
+        if cut is None:
+            return ""
+        if not cut:
+            return "(You were interrupted before saying anything. The rest was not heard.) "
+        return f'(You were interrupted after saying: "{cut}". The rest was not heard.) '
 
     def _log_turn(self, heard: str, said: str) -> None:
         try:
@@ -269,11 +326,19 @@ class VoiceLoop:
         # aclosing: if speaking fails mid-stream, the brain's generator is closed
         # now (recycling its client), not whenever it is garbage collected.
         async with contextlib.aclosing(self.brain.ask(text)) as reply:
-            async for delta in reply:
-                for sentence in splitter.feed(delta):
-                    await self._say(sentence)
+            try:
+                async for delta in reply:
+                    for sentence in splitter.feed(delta):
+                        await self._say(sentence, barge_in=True)
+            except Interrupted:
+                # Before the close: the brain then drains the reply, keeping its session.
+                try:
+                    await self.brain.interrupt()
+                except Exception:
+                    traceback.print_exc(file=sys.stderr)
+                raise
         for sentence in splitter.flush():
-            await self._say(sentence)
+            await self._say(sentence, barge_in=True)
 
     async def _fail(self, exc: Exception) -> None:
         if isinstance(exc, BrainTimeout):
@@ -348,12 +413,12 @@ class VoiceLoop:
         self.recorder.reset()  # VAD state must not leak across utterances
         return await self.recorder.record(self._stream(), start_timeout_s)
 
-    async def _say(self, text: str) -> None:
+    async def _say(self, text: str, barge_in: bool = False) -> None:
         await self._stop_working_tone()
         async with self._audio_lock:
-            await self._say_unlocked(text)
+            await self._say_unlocked(text, barge_in)
 
-    async def _say_unlocked(self, text: str) -> None:
+    async def _say_unlocked(self, text: str, barge_in: bool = False) -> None:
         speakable = to_speakable(text)
         if not speakable:
             return
@@ -362,9 +427,50 @@ class VoiceLoop:
         (samples, sr), _ = await asyncio.gather(
             asyncio.to_thread(self.tts.synth, speakable), self._duck())
         trace("said", speakable)
+        if not barge_in or self.barge is None:
+            with self.mic.mute(MUTE_TAIL_S):
+                await self.player.play(samples, sr)
+            self._said.append(speakable)
+            return
         with self.mic.mute(MUTE_TAIL_S):
-            await self.player.play(samples, sr)
-        self._said.append(speakable)
+            pass  # drop frames queued while Claude was thinking: they are not a reply to this
+        hit, fraction = await self._play_listening(samples, sr, speakable)
+        if hit is None:
+            with self.mic.mute(MUTE_TAIL_S):
+                pass  # tail only: the room's echo of the last word is not the user
+            self._said.append(speakable)
+            return
+        # No tail here: what the mic hears next is the user still talking.
+        trace("interrupt", hit.phrase)
+        words = speakable.split()
+        played = " ".join(words[:round(len(words) * fraction)])
+        if played:
+            self._said.append(played)
+        raise Interrupted(hit.audio)
+
+    async def _play_listening(self, samples: Any, sr: int, speakable: str) -> tuple[Any, float]:
+        """Play a clip while the barge-in listener pulls the mic; stop on a stop phrase."""
+        done = asyncio.Event()
+        play = asyncio.ensure_future(self.player.play(samples, sr))
+        listen = asyncio.ensure_future(self.barge.listen(self._stream(), lambda: speakable, done))
+        hit = None
+        try:
+            await asyncio.wait({play, listen}, return_when=asyncio.FIRST_COMPLETED)
+            if listen.done() and not listen.cancelled() and listen.exception() is None:
+                hit = listen.result()
+            if hit is not None:
+                self.player.stop()
+            fraction = await play
+        finally:
+            if not play.done():
+                play.cancel()
+            done.set()
+            # Never cancel the listener: cancelling it mid-read would close the
+            # shared frames iterator. Once `done` is set it returns on the next frame.
+            await asyncio.gather(play, listen, return_exceptions=True)
+            if listen.done() and not listen.cancelled() and listen.exception() is not None:
+                traceback.print_exception(listen.exception(), file=sys.stderr)
+        return hit, 1.0 if fraction is None else float(fraction)
 
     async def _tone(self, kind: str) -> None:
         samples, sr = tone(kind)  # type: ignore[arg-type]
