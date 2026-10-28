@@ -726,6 +726,50 @@ async def test_ducker_failure_never_fails_the_turn():
     assert d.player.played == ["tone:wake", "Report is due."]
 
 
+class HungDucker(FakeDucker):
+    """duck() blocks like osascript waiting on a hung Spotify."""
+
+    def __init__(self, player, block_s=0.6) -> None:
+        super().__init__(player)
+        self.block_s = block_s
+        self.finished_at: list[float] = []
+
+    def duck(self) -> None:
+        import time
+        super().duck()
+        time.sleep(self.block_s)
+        self.finished_at.append(time.monotonic())
+
+    def restore(self) -> None:
+        import time
+        self.events.append(("restore", time.monotonic()))
+
+
+class TimedPlayer(FakePlayer):
+    async def play(self, samples, sr) -> None:
+        import time
+        await super().play(samples, sr)
+        self.times = getattr(self, "times", []) + [time.monotonic()]
+
+
+async def test_a_hung_music_app_never_holds_up_the_reply():
+    brain = FakeBrain([["One. Two. Three."]])
+    loop, d = make([AUDIO], ["count"], brain)
+    d.player = loop.player = TimedPlayer(d.mic)
+    ducker = loop.ducker = HungDucker(d.player)
+    await asyncio.wait_for(loop.run(), timeout=5)
+    assert d.player.played == ["tone:wake", "One.", "Two.", "Three."]
+    # Every sentence played while the first duck was still stuck, ~0.3 s apart at most.
+    first_duck_done = ducker.finished_at[0]
+    assert d.player.times[2] < first_duck_done
+    gaps = [b - a for a, b in zip(d.player.times, d.player.times[1:])]
+    assert max(gaps) < 0.45
+    # No pile-up of osascript calls behind the stuck one, and restore waits for it.
+    assert ducker.events.count("duck") <= 2
+    restore_at = ducker.events[-1][1]
+    assert restore_at >= max(ducker.finished_at)
+
+
 # -- barge-in ---------------------------------------------------------------
 
 from jarvis.voice.bargein import BargeIn  # noqa: E402

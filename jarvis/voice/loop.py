@@ -38,6 +38,9 @@ MAX_CONTINUATIONS = 2
 TRAILING_WORDS = {"uh", "um", "uhm", "umm", "er", "erm", "hmm", "like", "and", "but", "or",
                   "because", "the", "a", "an", "to", "of", "with", "for"}
 MUTE_TAIL_S = 0.3
+# The re-duck before a sentence may delay it by at most this past the synth: a hung
+# music app's osascript keeps running in the background instead.
+DUCK_WAIT_S = 0.3
 # Mic audio queued longer than this since the last reply sentence (Claude thinking,
 # a tool call) is dropped before listening for stop phrases again.
 STALE_AUDIO_S = 1.0
@@ -175,6 +178,7 @@ class VoiceLoop:
         self._frames: AsyncIterator[np.ndarray] | None = None
         self._audio_lock = asyncio.Lock()
         self._working: asyncio.Task[None] | None = None
+        self._ducking: asyncio.Task[None] | None = None  # the duck in flight, if any
         self._said: list[str] = []
         self._turn_active = False
         self._cut: str | None = None  # what Claude's reply got out before an interrupt
@@ -209,12 +213,14 @@ class VoiceLoop:
         self.wake.reset()
         # Duck alongside the wake tone so osascript never delays it; the finally
         # waits for the duck so it cannot land after the restore.
-        ducking = asyncio.create_task(self._duck())
+        self._start_duck()
         try:
             await self._tone("wake")
             await self._converse()
         finally:
-            await asyncio.gather(ducking, return_exceptions=True)
+            ducking = self._ducking
+            if ducking is not None:
+                await asyncio.gather(ducking, return_exceptions=True)
             await self._restore()
 
     async def _converse(self) -> None:
@@ -246,6 +252,15 @@ class VoiceLoop:
             self._set("FOLLOWUP")
             audio = await self._record(self.cfg.followup_s)
             in_followup = True
+
+    def _start_duck(self) -> asyncio.Task[None] | None:
+        """Duck in the background; one osascript run at a time (a hung app must not
+        queue a call per sentence behind it)."""
+        if self.ducker is None:
+            return None
+        if self._ducking is None or self._ducking.done():
+            self._ducking = asyncio.create_task(self._duck())
+        return self._ducking
 
     async def _duck(self) -> None:
         if self.ducker is None:
@@ -478,8 +493,11 @@ class VoiceLoop:
             return
         self._set("SPEAK")
         # Re-duck while synthesizing: music Claude started mid-turn gets lowered too.
-        (samples, sr), _ = await asyncio.gather(
-            asyncio.to_thread(self.tts.synth, speakable), self._duck())
+        ducking = self._start_duck()
+        samples, sr = await asyncio.to_thread(self.tts.synth, speakable)
+        if ducking is not None and not ducking.done():
+            # asyncio.wait never cancels it: a slow duck finishes in the background.
+            await asyncio.wait({ducking}, timeout=DUCK_WAIT_S)
         trace("said", speakable)
         if not barge_in or self.barge is None:
             with self.mic.mute(MUTE_TAIL_S):

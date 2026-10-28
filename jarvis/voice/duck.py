@@ -32,12 +32,15 @@ class MusicDucker:
         self._state_path = state_path
         self._sleep = sleep
         self._ducked: dict[str, tuple[int, int]] = {}  # app -> (previous, set_to)
+        # Apps whose osascript failed (hung, launching): not retried until restore(), so a
+        # 10 s timeout is paid once per conversation, not once per sentence.
+        self._failed: set[str] = set()
         self._lock = threading.Lock()
 
     def duck(self) -> None:
         with self._lock:
             for app in self._apps:
-                if app in self._ducked:
+                if app in self._ducked or app in self._failed:
                     continue
                 try:
                     if not self._running(app):
@@ -52,11 +55,13 @@ class MusicDucker:
                     self._osa(f'tell application "{app}" to set sound volume to {target}')
                 except Exception as exc:
                     log.warning("could not duck %s: %s", app, exc)
+                    self._failed.add(app)
                     if self._ducked.pop(app, None) is not None:
                         self._save()
 
     def restore(self) -> None:
         with self._lock:
+            self._failed.clear()
             self._restore()
 
     def recover(self) -> None:

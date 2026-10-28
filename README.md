@@ -219,7 +219,10 @@ fades them back to exactly where they were. Only each app's own volume is change
 never the system volume Jarvis speaks at, and only apps that are already running.
 If you change an app's volume while it is ducked, your choice is kept. Levels are
 saved to `~/.jarvis/voice/duck.json` while ducked, so a crash cannot leave music
-low: the next start restores them. Set `duck_music: false` to turn it off. macOS has
+low: the next start restores them. Music started mid-conversation is lowered before
+the next sentence, but a hung or launching app never delays speech by more than about
+0.3 s, and an app that fails is left alone until the conversation ends. Set
+`duck_music: false` to turn it off. macOS has
 no per-app volume API, so only Spotify and Apple Music can be ducked.
 
 ### Barge-in

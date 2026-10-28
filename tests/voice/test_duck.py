@@ -258,3 +258,26 @@ def test_restore_retry_after_partial_fade():
     assert apps.volumes["Spotify"] < 80
     ducker.restore()
     assert apps.volumes["Spotify"] == 80
+
+
+def test_failed_app_is_skipped_until_the_conversation_ends():
+    # A hung Spotify times out after 10 s: re-ducking it before every sentence would
+    # stall each one again.
+    class Hung(FakeApps):
+        hung = True
+
+        def __call__(self, script):
+            if self.hung and '"Spotify" to' in script:
+                raise SpeakerError("osascript failed: timed out")
+            return super().__call__(script)
+
+    apps = Hung(Spotify=80, Music=50)
+    ducker, _ = make(apps)
+    ducker.duck()
+    calls = len(apps.scripts)
+    ducker.duck()
+    assert not any("Spotify" in s for s in apps.scripts[calls:])
+    ducker.restore()  # the conversation is over: try it again next time
+    apps.hung = False
+    ducker.duck()
+    assert apps.volumes == {"Spotify": 16, "Music": 10}
