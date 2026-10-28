@@ -27,7 +27,7 @@ def test_local_overrides_example(tmp_path: Path) -> None:
     cfg = load_config(ex, local)
     assert cfg.followup_s == 5.0
     assert cfg.kokoro_model == Path("models/kokoro.onnx")
-    assert cfg.hard_silence_s == 1.5
+    assert cfg.hard_silence_s == 3.0
     assert cfg.pause_check_s == 0.24
 
 

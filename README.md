@@ -191,7 +191,9 @@ AppleScript can only start a track, album, playlist or artist.
 
 Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),
 `[thinking]` (Claude's thinking, when it streams any), `[tool]` / `[result]` (each
-tool call and its outcome) and `[said]` (each spoken sentence).
+tool call and its outcome), `[said]` (each spoken sentence) and `[turn]` (why your
+turn ended: `smart_turn`, `hard_silence` or `max_length`, with the pause length and
+the smart-turn score).
 
 ### Drop-in wake words
 
