@@ -1187,3 +1187,31 @@ def test_trim_echo():
     assert _trim_echo("play jazz", "wait", said) == "play jazz"
     assert _trim_echo("The weather today is sunny.", "wait", said) == ""
     assert _trim_echo("Hey Jarvis, play jazz", "jarvis", said) == "Jarvis, play jazz"
+
+
+class ConfirmThenStoryBrain(InterruptBrain):
+    """Speaks, asks a confirmation mid-reply, then keeps talking."""
+
+    async def ask(self, text):
+        self.asked.append(text)
+        if len(self.asked) > 1:
+            yield "Emailing Bob."
+            return
+        try:
+            yield "Checking now. "
+            await self.confirm("Send it?")
+            yield "One two three four. More"
+            yield " words."
+        finally:
+            self.events.append("closed")
+
+
+async def test_cut_note_quotes_only_reply_sentences_not_confirmations():
+    brain = ConfirmThenStoryBrain()
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["email Sam", "yes", "wait, email Bob"], brain,
+                         hits=[None, BargeIn("wait", CAPTURED)])
+    brain.confirm = loop.confirm
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert "Send it?" in d.player.played
+    assert brain.asked[1] == ('(You were interrupted after saying: "Checking now. One two". '
+                              'The rest was not heard.) wait, email Bob')

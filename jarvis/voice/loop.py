@@ -179,7 +179,8 @@ class VoiceLoop:
         self._audio_lock = asyncio.Lock()
         self._working: asyncio.Task[None] | None = None
         self._ducking: asyncio.Task[None] | None = None  # the duck in flight, if any
-        self._said: list[str] = []
+        self._said: list[str] = []  # everything spoken this turn, confirmations too
+        self._reply: list[str] = []  # just Claude's reply sentences, as played
         self._turn_active = False
         self._cut: str | None = None  # what Claude's reply got out before an interrupt
         self._interrupt: Interrupted | None = None
@@ -335,7 +336,7 @@ class VoiceLoop:
                 text, getattr(self.cfg, "stop_phrases", DEFAULT_STOP_PHRASES)):
             return FOLLOWUP  # "wait" / "hold up": it stopped, now it listens
 
-        self._said = []
+        self._said, self._reply = [], []
         outcome = FOLLOWUP
         self._turn_active = True
         try:
@@ -352,7 +353,7 @@ class VoiceLoop:
                     outcome = IDLE  # Claude read it as a brush-off: end the conversation
         except Interrupted as exc:
             self._interrupt = exc
-            self._cut = " ".join(self._said)
+            self._cut = " ".join(self._reply)
             outcome = INTERRUPTED
         except Exception as exc:
             outcome = IDLE
@@ -503,6 +504,8 @@ class VoiceLoop:
             with self.mic.mute(MUTE_TAIL_S):
                 await self.player.play(samples, sr)
             self._said.append(speakable)
+            if barge_in:
+                self._reply.append(speakable)
             return
         if self._listened_at is None or self._clock() - self._listened_at > STALE_AUDIO_S:
             with self.mic.mute(MUTE_TAIL_S):
@@ -514,6 +517,7 @@ class VoiceLoop:
                 pass  # tail only: the room's echo of the last word is not the user
             self._listened_at = self._clock()
             self._said.append(speakable)
+            self._reply.append(speakable)
             return
         # No tail here: what the mic hears next is the user still talking.
         trace("interrupt", hit.phrase)
@@ -521,6 +525,7 @@ class VoiceLoop:
         played = " ".join(words[:round(len(words) * fraction)])
         if played:
             self._said.append(played)
+            self._reply.append(played)
         self._cutting = True
         raise Interrupted(hit.audio, hit.phrase, speakable)
 
