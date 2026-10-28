@@ -62,6 +62,7 @@ Homepage = "https://github.com/paarth-r/jarvis"
 [tool.setuptools]
 packages = [
     "jarvis",
+    "jarvis.gestures",
     "jarvis.modules",
     "jarvis.processes",
     "jarvis.runtime",
