@@ -61,7 +61,7 @@ jarvis/                          ← git repo root
 - [ ] **Step 1: Create directory tree and empty __init__.py files**
 
 ```bash
-cd /Users/paarth-r/Code/Jarvis/jarvis
+cd jarvis
 mkdir -p jarvis/runtime jarvis/modules jarvis/processes tests
 touch jarvis/__init__.py
 touch jarvis/runtime/__init__.py
@@ -145,7 +145,7 @@ def test_intent_event_fields():
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-cd /Users/paarth-r/Code/Jarvis/jarvis
+cd jarvis
 python -m pytest tests/test_events.py -v
 ```
 

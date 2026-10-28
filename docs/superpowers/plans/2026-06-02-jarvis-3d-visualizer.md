@@ -577,7 +577,7 @@ mouse takeover, temporarily set `gesture_hci`/`action_dispatcher` `enabled:
 false` (add `enabled: false` to those blocks), then:
 
 ```bash
-cd /Users/paarth-r/Code/Jarvis/jarvis
+cd jarvis
 python -m jarvis.main --config config.yaml
 ```
 
