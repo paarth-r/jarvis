@@ -86,3 +86,21 @@ def test_library_commands_without_login_say_how_to_fix_it():
     speakers = MacSpeakers(FakeMac())
     with pytest.raises(SpeakerError, match="jarvis-spotify-login"):
         dj(["top"], speakers, None)
+
+
+def test_queue_a_song_by_name_or_link_without_interrupting():
+    from tests.voice.test_spotify_user import FakePlayer
+
+    class Account(FakePlayer, FakeCatalog):
+        pass
+
+    mac, lib = FakeMac(status="playing"), UserLibrary(Account())
+    speakers = MacSpeakers(mac, search=lib, library=lib)
+    out = dj(["queue", "clair de lune"], speakers, lib)
+    dj(["queue", "https://open.spotify.com/track/L1"], speakers, lib)
+    assert lib._sp.queued == ["spotify:track:Z", "spotify:track:L1"]
+    assert out["queued"] == "spotify:track:Z" and out["up_next"][0]["name"] == "Hype"
+    assert not any("play track" in s for s in mac.scripts)
+    assert dj(["queue"], speakers, lib)["now_playing"]["name"] == "Hype"
+    with pytest.raises(SpeakerError, match="only songs"):
+        dj(["queue", "https://open.spotify.com/album/X9"], speakers, lib)

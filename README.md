@@ -187,8 +187,11 @@ transitions are logged to stderr as `[voice] IDLE -> LISTEN`.
 JSON, so any script or Claude session can DJ: `jarvis-dj play "gym" --kind my_playlist`,
 `jarvis-dj play --kind liked`, `jarvis-dj top --range short`, `jarvis-dj recent`,
 `jarvis-dj playlists`, `jarvis-dj search "<q>" --kind artist`, `pause`, `resume`,
-`next`, `prev`, `shuffle on`, `volume 40`, `now`. There is no queue: the desktop app's
-AppleScript can only start a track, album, playlist or artist.
+`next`, `prev`, `shuffle on`, `volume 40`, `now`. `jarvis-dj queue "<song or link>"`
+adds a song after the current one without interrupting it, and a bare `jarvis-dj queue`
+lists what is up next. The desktop app's AppleScript has no queue, so this goes through
+the Web API: it needs Spotify Premium, something already playing, and a login made
+after queueing was added (rerun `jarvis-spotify-login` once if it asks).
 
 ### Terminal trace
 

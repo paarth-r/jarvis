@@ -10,6 +10,7 @@ commands (my_playlist, liked, playlists, top, recent) need the one-time
     jarvis-dj play --kind liked               jarvis-dj search "radiohead" --kind artist
     jarvis-dj pause | resume | next | prev    jarvis-dj shuffle on
     jarvis-dj volume 40                       jarvis-dj now
+    jarvis-dj queue "redbone"                 jarvis-dj queue   (show up next)
 """
 from __future__ import annotations
 
@@ -38,6 +39,9 @@ def _parser() -> argparse.ArgumentParser:
     search.add_argument("query")
     search.add_argument("--kind", choices=ALL_KINDS, default="track")
     search.add_argument("--limit", type=int, default=5)
+    queue = sub.add_parser("queue", help="add a song after the current one; bare shows the queue")
+    queue.add_argument("query", nargs="?", default="")
+    queue.add_argument("--limit", type=int, default=10)
     for name in ("now", "pause", "resume", "next", "prev", "playlists"):
         sub.add_parser(name)
     shuffle = sub.add_parser("shuffle")
@@ -75,6 +79,16 @@ def run(argv: list[str], speakers: MacSpeakers, library,
         speakers.apply({"query": a.query or a.kind, "kind": a.kind, "playing": True})
         sleep(SETTLE_S)
         return now()
+    if a.cmd == "queue":
+        lib = _need(library)
+        if not a.query:
+            return lib.up_next(a.limit)
+        uri = speakers.resolve(a.query, "track")
+        if not uri.startswith(("spotify:track:", "spotify:episode:")):
+            raise SpeakerError("only songs (and podcast episodes) can be queued; "
+                               "play an album or playlist instead")
+        lib.queue_add(uri)
+        return {"queued": uri, "up_next": lib.up_next(a.limit)["queue"]}
     if a.cmd == "search":
         return speakers.search(a.query, a.kind, a.limit)
     if a.cmd == "playlists":
