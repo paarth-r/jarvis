@@ -114,11 +114,15 @@ class StereoFusionModule(Module):
         pts3d = (pts4d[:3] / pts4d[3]).T.astype(np.float32)
 
         avg_ts = (matched[cam_a].timestamp + matched[cam_b].timestamp) / 2.0
+        shape = matched[cam_a].world_landmarks
+        if shape is None:
+            shape = matched[cam_b].world_landmarks
         return WorldPoseEvent(
             landmarks_3d=pts3d,
             timestamp=avg_ts,
             confidence=1.0,
             hand_side=matched[cam_a].hand_side,
+            hand_shape=shape,
         )
 
     def _mono_project(self, event: PoseEvent) -> WorldPoseEvent:
@@ -138,6 +142,7 @@ class StereoFusionModule(Module):
             timestamp=event.timestamp,
             confidence=0.5,
             hand_side=event.hand_side,
+            hand_shape=event.world_landmarks,
         )
 
     async def run(self) -> None:

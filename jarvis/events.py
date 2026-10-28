@@ -17,6 +17,9 @@ class PoseEvent:
     landmarks_2d: np.ndarray  # (21, 3) normalized [x∈0-1, y∈0-1, z_rel]
     timestamp: float
     hand_side: str            # "left" | "right"
+    # (21, 3) MediaPipe hand_world_landmarks: metres, hand-centred, camera-
+    # oriented, with model-estimated depth. None when the model gave none.
+    world_landmarks: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -27,6 +30,9 @@ class WorldPoseEvent:
     timestamp: float
     confidence: float         # 1.0 = full stereo, 0.5 = mono fallback
     hand_side: str
+    # (21, 3) hand shape in metres (see PoseEvent.world_landmarks). Use this,
+    # not landmarks_3d, for shape and orientation: mono projection flattens z.
+    hand_shape: Optional[np.ndarray] = None
 
 
 @dataclass

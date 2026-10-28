@@ -97,11 +97,17 @@ class HandPoseModule(Module):
         landmarks = np.array(
             [[p.x, p.y, p.z] for p in lm_list], dtype=np.float32
         )
+        world = None
+        if getattr(result, "hand_world_landmarks", None):
+            world = np.array(
+                [[p.x, p.y, p.z] for p in result.hand_world_landmarks[0]], dtype=np.float32
+            )
         return PoseEvent(
             camera_id=self._camera_id,
             landmarks_2d=landmarks,
             timestamp=event.timestamp,
             hand_side=hand_side,
+            world_landmarks=world,
         )
 
     async def run(self) -> None:
