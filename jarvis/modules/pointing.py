@@ -7,20 +7,11 @@ import numpy as np
 from ..events import WorldPoseEvent, PointEvent
 from ..runtime.module_base import Module
 
-# MediaPipe landmark indices
-WRIST = 0
-INDEX_MCP = 5
-INDEX_PIP = 6
-INDEX_TIP = 8
-MIDDLE_MCP = 9
-MIDDLE_PIP = 10
-MIDDLE_TIP = 12
-RING_MCP = 13
-RING_PIP = 14
-RING_TIP = 16
-PINKY_MCP = 17
-PINKY_PIP = 18
-PINKY_TIP = 20
+from ..gestures.builtins import (  # noqa: F401  (re-exported for callers)
+    WRIST, INDEX_MCP, INDEX_PIP, INDEX_TIP, MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP,
+    RING_MCP, RING_PIP, RING_TIP, PINKY_MCP, PINKY_PIP, PINKY_TIP,
+    is_fist, is_pointing,
+)
 
 
 def compute_ray(landmarks_3d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -31,38 +22,6 @@ def compute_ray(landmarks_3d: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     n = float(np.linalg.norm(d))
     direction = d / n if n > 0 else d
     return origin, direction
-
-
-def _extended(landmarks_3d: np.ndarray, tip: int, pip: int) -> bool:
-    """A finger is extended when its tip is farther from the wrist than its PIP."""
-    wrist = landmarks_3d[WRIST]
-    return (np.linalg.norm(landmarks_3d[tip] - wrist)
-            > np.linalg.norm(landmarks_3d[pip] - wrist))
-
-
-def is_pointing(landmarks_3d: np.ndarray) -> bool:
-    """True when the index finger is extended and middle/ring/pinky are curled."""
-    index_out = _extended(landmarks_3d, INDEX_TIP, INDEX_PIP)
-    others_curled = (
-        not _extended(landmarks_3d, MIDDLE_TIP, MIDDLE_PIP)
-        and not _extended(landmarks_3d, RING_TIP, RING_PIP)
-        and not _extended(landmarks_3d, PINKY_TIP, PINKY_PIP)
-    )
-    return index_out and others_curled
-
-
-def is_fist(landmarks_3d: np.ndarray) -> bool:
-    """True when all four fingertips are folded back into the palm (each tip
-    no farther from the wrist than its own knuckle). Stricter than 'not
-    extended' on purpose: a pinch bends the index but leaves its tip well
-    beyond the knuckle, so pinching never reads as a fist."""
-    wrist = landmarks_3d[WRIST]
-    for tip, mcp in [(INDEX_TIP, INDEX_MCP), (MIDDLE_TIP, MIDDLE_MCP),
-                     (RING_TIP, RING_MCP), (PINKY_TIP, PINKY_MCP)]:
-        if (np.linalg.norm(landmarks_3d[tip] - wrist)
-                > np.linalg.norm(landmarks_3d[mcp] - wrist)):
-            return False
-    return True
 
 
 class PointingModule(Module):

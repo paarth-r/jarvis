@@ -5,9 +5,10 @@ from typing import Optional
 
 import numpy as np
 
-from ..events import WorldPoseEvent, IntentEvent
+from ..events import GestureEvent, WorldPoseEvent, IntentEvent
+from ..gestures.builtins import is_fist
+from ..gestures.engine import GestureEngine, GestureFrame
 from ..runtime.module_base import Module
-from .pointing import is_fist
 from .trackpad import TrackpadMapper
 from .box_mapper import BoxMapper
 
@@ -22,6 +23,7 @@ class _PinchState(Enum):
     OPEN = "open"
     PENDING = "pending"    # pinched, waiting to see if it's a click or a drag
     DRAGGING = "dragging"
+    LOCKED = "locked"      # another gesture owns the hand; re-arms when the thumb opens
 
 
 class PinchFSM:
@@ -46,6 +48,11 @@ class PinchFSM:
         """Pinched, not yet a drag — the cursor should hold still."""
         return self._state == _PinchState.PENDING
 
+    @property
+    def state(self) -> str:
+        """"open" | "pending" | "dragging" | "locked"."""
+        return self._state.value
+
     def cancel(self) -> str:
         """Abandon the current pinch without clicking. Returns 'release' if a
         drag was in progress (so the button gets let go), else 'idle'."""
@@ -53,7 +60,20 @@ class PinchFSM:
         self._state = _PinchState.OPEN
         return "release" if was_dragging else "idle"
 
+    def lock(self) -> str:
+        """Like cancel, but no new pinch can start until the thumb has opened
+        past release_thresh once: a thumb resting on the index as a fist
+        opens must not click."""
+        result = self.cancel()
+        self._state = _PinchState.LOCKED
+        return result
+
     def update(self, distance: float, now: float) -> str:
+        if self._state == _PinchState.LOCKED:
+            if distance > self._release:
+                self._state = _PinchState.OPEN
+            return "idle"
+
         if self._state == _PinchState.OPEN:
             if distance < self._thresh:
                 self._state = _PinchState.PENDING
@@ -112,17 +132,41 @@ class GestureHCIModule(Module):
         tp = self.config.get("trackpad", {}) or {}
         self._trackpad = TrackpadMapper(**tp)
         self._clutched = False
+        # One gesture at a time (see jarvis/gestures/engine.py). Fist holds
+        # the cursor; any active gesture locks out pinch.
+        self.engine = GestureEngine(self.config.get("gestures", {}) or {})
+        self.last_frame: Optional[GestureFrame] = None
         self.bus.subscribe(WorldPoseEvent, self._on_pose)
 
     async def _on_pose(self, event: WorldPoseEvent) -> None:
+        hold = await self._arbitrate(event)
         if self._mode == "trackpad":
-            await self._on_pose_trackpad(event)
+            await self._on_pose_trackpad(event, hold)
         elif self._mode == "box":
-            await self._on_pose_box(event)
+            await self._on_pose_box(event, hold)
         else:
-            await self._on_pose_absolute(event)
+            await self._on_pose_absolute(event, hold)
 
-    async def _on_pose_box(self, event: WorldPoseEvent) -> None:
+    async def _arbitrate(self, event: WorldPoseEvent) -> bool:
+        """Run the gesture engine, publish start/end, lock pinch out while a
+        gesture owns the hand. Returns True when the cursor should hold still
+        (a fist, from its first frame, before its dwell completes)."""
+        pinch_state = self._fsm.state
+        frame = self.engine.update(
+            event.hand_shape, "open" if pinch_state == "locked" else pinch_state,
+            event.timestamp,
+        )
+        self.last_frame = frame
+        if frame.ended:
+            await self.bus.publish(GestureEvent(frame.ended, "end", event.timestamp))
+        if frame.started:
+            await self.bus.publish(GestureEvent(frame.started, "start", event.timestamp))
+        fist = frame.active == "fist" or frame.candidate == "fist"
+        if (fist or frame.active is not None) and self._fsm.state != "dragging":
+            self._fsm.lock()
+        return fist
+
+    async def _on_pose_box(self, event: WorldPoseEvent, hold: bool = False) -> None:
         lm = event.landmarks_3d
         mid = (lm[INDEX_MCP, :2] + lm[THUMB_MCP, :2]) / 2.0
         norm_x, norm_y = self._box.update(mid, event.timestamp)
@@ -133,8 +177,8 @@ class GestureHCIModule(Module):
         # Pinching shifts the knuckles; hold the cursor where it was the frame
         # before the fingers closed (the closing frame already carries some
         # shift), then re-anchor the box there so it doesn't jump when the
-        # pinch resolves into a click or a drag.
-        if self._fsm.is_pending:
+        # pinch resolves into a click or a drag. A fist holds it the same way.
+        if self._fsm.is_pending or hold:
             if self._frozen is None:
                 self._frozen = self._prev_norm or (norm_x, norm_y)
             norm_x, norm_y = self._frozen
@@ -160,12 +204,12 @@ class GestureHCIModule(Module):
             timestamp=event.timestamp,
         ))
 
-    async def _on_pose_trackpad(self, event: WorldPoseEvent) -> None:
+    async def _on_pose_trackpad(self, event: WorldPoseEvent, hold: bool = False) -> None:
         lm = event.landmarks_3d
         dx = dy = 0
         dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
 
-        self._clutched = is_fist(lm)
+        self._clutched = is_fist(lm) or hold
         if self._clutched:
             # Hand 'lifted': forget position so there's no jump on re-entry,
             # and drop any pinch (a closing fist can brush thumb to index).
@@ -198,7 +242,7 @@ class GestureHCIModule(Module):
             timestamp=event.timestamp,
         ))
 
-    async def _on_pose_absolute(self, event: WorldPoseEvent) -> None:
+    async def _on_pose_absolute(self, event: WorldPoseEvent, hold: bool = False) -> None:
         lm = event.landmarks_3d
 
         # Cursor follows midpoint of index and thumb knuckles (MCPs), mirrored on X
@@ -207,7 +251,8 @@ class GestureHCIModule(Module):
         norm_x = max(0.0, min(1.0, 1.0 - (0.5 + self._gain * mid_x)))
         norm_y = max(0.0, min(1.0, 0.5 + self._gain * mid_y))
 
-        self._controller.move(norm_x, norm_y)
+        if not hold:
+            self._controller.move(norm_x, norm_y)
 
         dist = float(np.linalg.norm(lm[THUMB_TIP] - lm[INDEX_TIP]))
         intent = self._fsm.update(dist, event.timestamp)

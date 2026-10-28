@@ -44,6 +44,14 @@ class IntentEvent:
 
 
 @dataclass
+class GestureEvent:
+    name: str        # "fist" | "point" | a custom gesture's name
+    phase: str       # "start" | "end"
+    timestamp: float
+    payload: dict = field(default_factory=dict)
+
+
+@dataclass
 class PointEvent:
     world_pos: np.ndarray   # ray origin in world coords (3,)
     direction: np.ndarray   # unit vector (3,)
