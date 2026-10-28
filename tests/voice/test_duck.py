@@ -281,3 +281,40 @@ def test_failed_app_is_skipped_until_the_conversation_ends():
     apps.hung = False
     ducker.duck()
     assert apps.volumes == {"Spotify": 16, "Music": 10}
+
+
+class SetFails(FakeApps):
+    """The set raises (osascript timed out), applied or not."""
+
+    applied = True
+
+    def __call__(self, script):
+        if "set sound volume to" in script and not getattr(self, "restoring", False):
+            if self.applied:
+                super().__call__(script)
+            raise SpeakerError("osascript failed: timed out")
+        return super().__call__(script)
+
+
+def test_set_that_timed_out_after_applying_is_still_restored(tmp_path):
+    apps = SetFails(Spotify=80)
+    ducker, _ = make(apps, tmp_path)
+    ducker.duck()
+    assert apps.volumes["Spotify"] == 16
+    assert (tmp_path / "duck.json").exists()  # a crash now must not strand it low
+    apps.restoring = True
+    ducker.restore()
+    assert apps.volumes["Spotify"] == 80
+    assert not (tmp_path / "duck.json").exists()
+
+
+def test_set_that_failed_unapplied_restores_harmlessly(tmp_path):
+    apps = SetFails(Spotify=80)
+    apps.applied = False
+    ducker, _ = make(apps, tmp_path)
+    ducker.duck()
+    assert apps.volumes["Spotify"] == 80
+    apps.restoring = True
+    ducker.restore()
+    assert apps.volumes["Spotify"] == 80
+    assert not (tmp_path / "duck.json").exists()

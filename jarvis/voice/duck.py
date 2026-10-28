@@ -54,10 +54,10 @@ class MusicDucker:
                     self._save()
                     self._osa(f'tell application "{app}" to set sound volume to {target}')
                 except Exception as exc:
+                    # A set that failed or timed out may still have applied: keep its
+                    # entry, restore's level check is right either way.
                     log.warning("could not duck %s: %s", app, exc)
                     self._failed.add(app)
-                    if self._ducked.pop(app, None) is not None:
-                        self._save()
 
     def restore(self) -> None:
         with self._lock:
