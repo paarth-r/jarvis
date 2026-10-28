@@ -164,11 +164,14 @@ enabled until a faster-whisper STT backend lands).
 ### Run
 
 ```bash
-.venv-voice/bin/jarvis-room
-.venv-voice/bin/jarvis-voice --local config.voice.local.yaml
+./run_room.sh    # room API: Mac speakers + Spotify
+./run_voice.sh   # the voice agent itself
 ```
 
-Run the two commands in separate terminals. `jarvis-room` is the real room API: it
+Run the two scripts in separate terminals, room first (`run_voice.sh` warns if
+nothing is listening on the room port). Both default to `config.voice.local.yaml`;
+pass another config as the first argument, and anything after it goes straight to
+`.venv-voice/bin/jarvis-room` / `.venv-voice/bin/jarvis-voice`. `jarvis-room` is the real room API: it
 exposes only devices that exist, today `speakers` (the Mac's output volume plus the
 Spotify desktop app). Songs, albums, public playlists, artists, your own playlists and
 your Liked Songs can be searched and played, plus skip, shuffle, pause and volume.
