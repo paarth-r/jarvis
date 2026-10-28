@@ -1,3 +1,112 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Gesture Studio</title></head>
-<body><p>Gesture Studio</p></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gesture Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%232F5BFF'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <section class="live" aria-label="Live hand">
+    <div class="stage">
+      <canvas id="hand" width="640" height="560" aria-label="Your tracked hand"></canvas>
+      <div id="overlay" class="overlay" hidden>
+        <div id="overlay-num" class="overlay-num"></div>
+        <div id="overlay-text" class="overlay-text"></div>
+        <div class="overlay-bar"><div id="overlay-fill"></div></div>
+      </div>
+      <p id="no-hand" class="no-hand">Show your hand to the camera.</p>
+    </div>
+    <div class="readout">
+      <div id="active" class="active-name">No gesture</div>
+      <div id="active-sub" class="active-sub">&nbsp;</div>
+    </div>
+    <div id="tilt" class="tilt" hidden>
+      <div class="tilt-track"><div class="tilt-zero"></div><div id="tilt-dot" class="tilt-dot"></div></div>
+      <div class="tilt-label"><span>Tip back to scroll up</span><span id="tilt-deg"></span><span>Tip forward to scroll down</span></div>
+    </div>
+    <div id="meters" class="meters" aria-label="How closely your hand matches each custom gesture"></div>
+    <ol id="events" class="events" aria-label="Recent gestures"></ol>
+    <p id="conn" class="conn" hidden>Lost connection to Jarvis. Is it still running?</p>
+  </section>
+
+  <main class="side">
+    <div id="view-list">
+      <header class="side-head">
+        <h1>Gestures</h1>
+        <button id="add-btn" class="primary">Add gesture</button>
+      </header>
+      <ul id="gesture-list" class="glist"></ul>
+    </div>
+
+    <div id="view-add" hidden>
+      <header class="side-head">
+        <h1 id="add-title">New gesture</h1>
+        <button id="add-cancel" class="quiet">Cancel</button>
+      </header>
+      <ol class="steps">
+        <li class="step" data-step="1">
+          <h2>Name it</h2>
+          <form id="name-form" class="row">
+            <input id="name-input" autocomplete="off" maxlength="32" placeholder="peace, rock on, three" aria-label="Gesture name">
+            <button class="primary" type="submit">Start</button>
+          </form>
+          <p id="name-error" class="error" role="alert"></p>
+        </li>
+        <li class="step" data-step="2">
+          <h2>Record takes</h2>
+          <p class="help">Make the gesture and hold it until the bar fills. Relax your hand between takes and come back into it, the way you would for real. Five takes is a good set; vary your hand's angle a little.</p>
+          <div class="row">
+            <button id="take-btn" class="primary">Record take</button>
+            <span class="kbd-hint">or press Space</span>
+          </div>
+          <ul id="takes" class="takes"></ul>
+        </li>
+        <li class="step" data-step="3">
+          <h2>Everyday movement <span class="optional">(optional)</span></h2>
+          <p class="help">Ten seconds of moving your hand normally: reach for the mouse, make your other gestures, rest. This catches a gesture you would make by accident.</p>
+          <div class="row">
+            <button id="bg-btn">Record 10 seconds</button>
+            <span id="bg-status" class="muted"></span>
+          </div>
+        </li>
+        <li class="step" data-step="4">
+          <h2>Check it</h2>
+          <div class="row">
+            <button id="check-btn" class="primary">Check gesture</button>
+            <span class="kbd-hint">or press Enter</span>
+          </div>
+          <div id="report" class="report"></div>
+        </li>
+        <li class="step" data-step="5">
+          <h2>Bind and save</h2>
+          <div id="add-binding"></div>
+          <div class="row">
+            <button id="save-btn" class="primary" disabled>Save gesture</button>
+            <span id="save-note" class="muted"></span>
+          </div>
+          <p id="save-error" class="error" role="alert"></p>
+        </li>
+      </ol>
+    </div>
+  </main>
+</div>
+
+<dialog id="bind-dialog" class="dialog">
+  <form method="dialog" class="dialog-body">
+    <h2 id="bind-title">Bind</h2>
+    <div id="bind-editor"></div>
+    <p id="bind-error" class="error" role="alert"></p>
+    <div class="row end">
+      <button value="cancel" class="quiet">Cancel</button>
+      <button id="bind-save" class="primary" value="save">Save binding</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" role="status" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
