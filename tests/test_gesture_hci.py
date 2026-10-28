@@ -95,6 +95,9 @@ class FakeController:
     def mouse_up_here(self):
         self.calls.append(("mouse_up_here",))
 
+    def scroll_px(self, dx, dy):
+        self.calls.append(("scroll_px", dx, dy))
+
 
 def _pose(pinch_dist: float, ts: float) -> WorldPoseEvent:
     lm = np.zeros((21, 3), dtype=np.float32)

@@ -55,6 +55,20 @@ modules:
     pinch_thresh_m: 0.025
     release_thresh_m: 0.045
     drag_hold_s: 0.2      # pinch held longer than this starts a drag; shorter = click
+    gestures:             # one gesture at a time: a pose must be held this long to count
+      dwell_s: 0.15       # custom gestures
+      release_s: 0.1      # an active gesture survives tracking dropouts this short
+      dwell: {fist: 0.1, point: 0.3}
+    scroll:               # fist, then tilt: knuckles toward the camera = scroll down
+      enabled: true
+      deadzone_deg: 8.0   # tilt that does nothing
+      full_deg: 35.0      # tilt that reaches max_px_s
+      max_px_s: 2500.0
+      curve: 1.5          # >1 = finer control near the dead zone
+      smoothing: 0.4      # weight of the newest angle (1 = no smoothing)
+      horizontal: false   # true = turning the forearm scrolls sideways
+      invert_y: false
+      invert_x: false
   pointing:
     class: jarvis.modules.pointing.PointingModule
     enabled: true
@@ -62,6 +76,13 @@ modules:
     class: jarvis.modules.action_dispatcher.ActionDispatcher
     cooldown_s: 1.0
     on_point_action: raycast   # action fired on a pointing gesture ("" disables)
+    # Gesture -> action bindings live in ~/.jarvis/gestures.json (edit them in
+    # the gesture studio; picked up live) and override these defaults.
+    # bindings: {point: {type: keys, combo: "cmd+space"}}
+  studio:
+    class: jarvis.studio.module.StudioModule
+    enabled: true         # gesture studio at http://127.0.0.1:8765 (add gestures, bind actions)
+    port: 8765
   visualizer:
     class: jarvis.modules.visualizer.VisualizerModule
     enabled: false        # opt-in; set true to show windows

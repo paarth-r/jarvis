@@ -62,15 +62,18 @@ Homepage = "https://github.com/paarth-r/jarvis"
 [tool.setuptools]
 packages = [
     "jarvis",
+    "jarvis.gestures",
     "jarvis.modules",
     "jarvis.processes",
     "jarvis.runtime",
+    "jarvis.studio",
     "jarvis.voice",
     "mouse_control",
 ]
 
 [tool.setuptools.package-data]
 mouse_control = ["*.task"]
+"jarvis.studio" = ["static/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

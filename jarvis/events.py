@@ -17,6 +17,9 @@ class PoseEvent:
     landmarks_2d: np.ndarray  # (21, 3) normalized [x∈0-1, y∈0-1, z_rel]
     timestamp: float
     hand_side: str            # "left" | "right"
+    # (21, 3) MediaPipe hand_world_landmarks: metres, hand-centred, camera-
+    # oriented, with model-estimated depth. None when the model gave none.
+    world_landmarks: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -27,6 +30,9 @@ class WorldPoseEvent:
     timestamp: float
     confidence: float         # 1.0 = full stereo, 0.5 = mono fallback
     hand_side: str
+    # (21, 3) hand shape in metres (see PoseEvent.world_landmarks). Use this,
+    # not landmarks_3d, for shape and orientation: mono projection flattens z.
+    hand_shape: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -35,6 +41,32 @@ class IntentEvent:
     confidence: float
     payload: dict
     timestamp: float
+
+
+@dataclass
+class GestureEvent:
+    name: str        # "fist" | "point" | a custom gesture's name
+    phase: str       # "start" | "end"
+    timestamp: float
+    payload: dict = field(default_factory=dict)
+
+
+@dataclass
+class GestureStateEvent:
+    # Every frame from gesture_hci, for the studio's live view.
+    active: Optional[str]      # the gesture in effect
+    candidate: Optional[str]   # what this frame's shape looked like
+    scores: dict               # custom gesture -> match score 0-1
+    pinch: str                 # pinch FSM state
+    scroll: Optional[dict]     # {"pitch", "roll"} degrees while fist-scrolling
+    timestamp: float
+
+
+@dataclass
+class StudioModeEvent:
+    # The gesture studio is recording takes: cursor control and gesture
+    # actions pause so making the gesture doesn't click or fire anything.
+    recording: bool
 
 
 @dataclass
