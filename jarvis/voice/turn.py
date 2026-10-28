@@ -5,16 +5,42 @@ import asyncio
 from collections import deque
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 import numpy as np
+
+from jarvis.voice.trace import trace
 
 SAMPLE_RATE = 16000
 FRAME = 1280
 SMART_TURN_SECONDS = 8
 SMART_TURN_THRESHOLD = 0.5
+# A short pause needs a confident "done" (mid-sentence "uh, like-" pauses score
+# near the middle); the bar falls linearly to SMART_TURN_THRESHOLD as the pause grows.
+STRICT_THRESHOLD = 0.8
+STRICT_UNTIL_S = 0.24
+SETTLED_AT_S = 1.0
+RECHECK_S = 0.3  # re-ask the model this often while the pause continues
 PREROLL_FRAMES = 3
 MAX_UTTERANCE_S = 30.0
+
+
+def end_threshold(silence_s: float) -> float:
+    """Smart-turn probability needed to end the turn after ``silence_s`` of pause."""
+    if silence_s <= STRICT_UNTIL_S:
+        return STRICT_THRESHOLD
+    if silence_s >= SETTLED_AT_S:
+        return SMART_TURN_THRESHOLD
+    frac = (silence_s - STRICT_UNTIL_S) / (SETTLED_AT_S - STRICT_UNTIL_S)
+    return STRICT_THRESHOLD - frac * (STRICT_THRESHOLD - SMART_TURN_THRESHOLD)
+
+
+class TurnEnd(NamedTuple):
+    """Why the last recording stopped: smart_turn, hard_silence or max_length."""
+
+    reason: str
+    silence_s: float
+    prob: float | None
 
 
 class SpeechDetector(Protocol):
@@ -81,7 +107,7 @@ class UtteranceRecorder:
         self,
         vad: SpeechDetector,
         smart_turn: TurnModel,
-        hard_silence_s: float = 1.5,
+        hard_silence_s: float = 3.0,
         pause_check_s: float = 0.24,
         max_utterance_s: float = MAX_UTTERANCE_S,
     ) -> None:
@@ -90,6 +116,7 @@ class UtteranceRecorder:
         self._hard_silence_s = hard_silence_s
         self._pause_check_s = pause_check_s
         self._max_utterance_s = max_utterance_s
+        self.last_end: TurnEnd | None = None
 
     def reset(self) -> None:
         """Clear the VAD's recurrent state so it does not leak across utterances."""
@@ -111,13 +138,16 @@ class UtteranceRecorder:
         max_frames = round(self._max_utterance_s / frame_s)
         pause_frames = round(self._pause_check_s / frame_s)
         hard_frames = round(self._hard_silence_s / frame_s)
+        recheck_frames = max(1, round(RECHECK_S / frame_s))
 
         preroll: deque[np.ndarray] = deque(maxlen=PREROLL_FRAMES)
         chunks: list[np.ndarray] = []
         started = False
         waited = 0
         silent = 0
-        checked = False
+        next_check = pause_frames
+        prob: float | None = None
+        self.last_end = None
 
         async for frame in frames:
             speech = self._vad.is_speech(frame)
@@ -135,19 +165,27 @@ class UtteranceRecorder:
 
             chunks.append(frame)
             if len(chunks) >= max_frames:
+                self.last_end = TurnEnd("max_length", silent * frame_s, prob)
                 break
             if speech:
                 silent = 0
-                checked = False
+                next_check = pause_frames
+                prob = None
                 continue
             silent += 1
             if silent >= hard_frames:
+                self.last_end = TurnEnd("hard_silence", silent * frame_s, prob)
                 break
-            if silent >= pause_frames and not checked:
-                checked = True
+            if silent >= next_check:
+                next_check = silent + recheck_frames
                 audio = np.concatenate(chunks)
                 prob = await asyncio.to_thread(self._turn.predict, audio)
-                if prob >= SMART_TURN_THRESHOLD:
+                if prob >= end_threshold(silent * frame_s):
+                    self.last_end = TurnEnd("smart_turn", silent * frame_s, prob)
                     break
 
+        if self.last_end is not None:
+            end = self.last_end
+            score = "" if end.prob is None else f", smart-turn {end.prob:.2f}"
+            trace("turn", f"{end.reason} after {end.silence_s:.2f} s silence{score}")
         return np.concatenate(chunks) if started else None

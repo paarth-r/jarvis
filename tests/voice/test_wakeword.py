@@ -151,6 +151,47 @@ async def test_player_plays_whole_clip_then_silence() -> None:
     assert stream.started and not stream.closed
 
 
+async def test_player_play_returns_fraction_played() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
+    task = asyncio.create_task(player.play(np.ones(1000, np.float32), 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    FakeStream.instances[0].pull(250)
+    player.stop()
+    assert await asyncio.wait_for(task, 1) == pytest.approx(0.25)
+
+
+async def test_player_fraction_survives_callbacks_after_stop() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
+    task = asyncio.create_task(player.play(np.ones(1000, np.float32), 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    stream = FakeStream.instances[0]
+    stream.pull(250)
+    player.stop()
+    stream.pull(200)
+    stream.pull(200)
+    assert await asyncio.wait_for(task, 1) == pytest.approx(0.25)
+
+
+async def test_player_play_returns_one_when_finished() -> None:
+    import asyncio
+    from jarvis.voice import audio
+
+    FakeStream.instances = []
+    player = audio.Player(stream_factory=FakeStream, device_rate=24000)
+    task = asyncio.create_task(player.play(np.ones(100, np.float32), 24000))
+    await _wait_until(lambda: FakeStream.instances)
+    FakeStream.instances[0].pull(200)
+    assert await asyncio.wait_for(task, 1) == 1.0
+
+
 async def test_player_reuses_one_stream_across_clips() -> None:
     import asyncio
     from jarvis.voice import audio

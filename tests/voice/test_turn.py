@@ -64,7 +64,7 @@ async def test_hard_silence_ends_turn():
     )
     assert audio is not None
     assert len(audio) == round(4.0 * 16000)
-    assert turn.calls == 1  # one check per pause, not per frame
+    assert rec.last_end.reason == "hard_silence"
 
 
 async def test_short_silence_never_consults_model():
@@ -106,6 +106,55 @@ def test_reset_resets_the_vad():
     UtteranceRecorder(vad, FakeTurn([0.9])).reset()
     assert vad.resets == 1
     UtteranceRecorder(FakeVAD(), FakeTurn([0.9])).reset()  # no reset(): no-op
+
+
+async def test_pause_is_rechecked_until_the_model_says_done():
+    # "check out, uh, like-": unsure at first, done once the pause has gone on.
+    turn = FakeTurn([0.1, 0.2, 0.9])
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.24)
+    audio = await rec.record(make_frames([(1, 1.0), (0, 5.0)]), start_timeout_s=2.0)
+    assert audio is not None
+    assert turn.calls == 3
+    assert rec.last_end.reason == "smart_turn"
+    assert rec.last_end.prob == 0.9
+    assert len(audio) < round(3.0 * 16000)  # well before the hard stop
+
+
+async def test_short_pause_needs_a_confident_model():
+    # 0.6 ends a 1 s pause but not a 0.24 s one.
+    turn = FakeTurn([0.6])
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.24)
+    await rec.record(make_frames([(1, 1.0), (0, 5.0)]), start_timeout_s=2.0)
+    assert turn.calls > 1
+    assert rec.last_end.reason == "smart_turn"
+    assert 0.7 <= rec.last_end.silence_s <= 1.1
+
+
+async def test_confident_model_ends_turn_on_first_check():
+    turn = FakeTurn([0.95])
+    rec = UtteranceRecorder(FakeVAD(), turn, hard_silence_s=3.0, pause_check_s=0.24)
+    await rec.record(make_frames([(1, 1.0), (0, 5.0)]), start_timeout_s=2.0)
+    assert turn.calls == 1
+    assert rec.last_end.silence_s < 0.4
+
+
+def test_end_threshold_decays_from_strict_to_normal():
+    from jarvis.voice.turn import end_threshold
+    assert end_threshold(0.24) == pytest.approx(0.8)
+    assert end_threshold(0.62) == pytest.approx(0.65)
+    assert end_threshold(1.0) == pytest.approx(0.5)
+    assert end_threshold(2.5) == pytest.approx(0.5)
+
+
+async def test_capped_utterance_reports_max_length():
+    rec = UtteranceRecorder(FakeVAD(), FakeTurn([0.0]), max_utterance_s=2.0)
+    await rec.record(make_frames([(1, 60.0)]), start_timeout_s=2.0)
+    assert rec.last_end.reason == "max_length"
+
+
+def test_hard_silence_defaults_to_three_seconds():
+    rec = UtteranceRecorder(FakeVAD(), FakeTurn([0.0]))
+    assert rec._hard_silence_s == 3.0
 
 
 @pytest.mark.skipif(not MODEL.exists(), reason="smart-turn model not downloaded")

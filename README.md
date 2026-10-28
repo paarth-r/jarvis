@@ -132,13 +132,16 @@ cameras:
 
 `jarvis-voice` is an always-on voice front-end for headless Claude Code. It listens
 for a wake word ("hey Jarvis"), records until you finish speaking (Silero VAD plus
-the smart-turn model, with a 3 s hard stop), transcribes locally with Whisper, sends
+the smart-turn model, with a 3 s hard stop; if the transcript trails off on "uh",
+"like", "and" (with no full stop or question mark after it) or a dash it keeps listening
+for the rest), transcribes locally with Whisper, sends
 the text to a warm Claude Code session running in your vault, and speaks the reply
 sentence by sentence with Kokoro TTS. After a reply it keeps listening for 8 s so
 you can follow up without the wake word; "new conversation" starts a fresh session,
 and "nevermind" (or "cancel", "stop", "forget it") drops the conversation. A goodbye ("thanks", "sounds good",
-"that's all") ends the follow-up too, unless it answers a question it just asked. It cannot
-hear you while it is talking (the mic is muted to avoid hearing itself).
+"that's all") ends the follow-up too, unless it answers a question it just asked. While it
+is talking you can cut it off with "wait" or "hold up" (see Barge-in below); otherwise the
+mic is muted while it speaks so it never hears itself.
 A small room MCP server (`list_devices`, `get_state`, `set_state`) lets Claude drive
 devices through an HTTP room API. It is separate from the vision runtime and has its
 own environment (`.venv-voice`, Python 3.12, Apple silicon for STT today).
@@ -191,7 +194,10 @@ AppleScript can only start a track, album, playlist or artist.
 
 Besides the `[voice]` state changes, the terminal shows `[heard]` (your transcript),
 `[thinking]` (Claude's thinking, when it streams any), `[tool]` / `[result]` (each
-tool call and its outcome) and `[said]` (each spoken sentence).
+tool call and its outcome), `[said]` (each spoken sentence), `[interrupt]` (the stop
+phrase that cut a reply off) and `[turn]` (why your
+turn ended: `smart_turn`, `hard_silence` or `max_length`, with the pause length and
+the smart-turn score).
 
 ### Drop-in wake words
 
@@ -204,6 +210,49 @@ built-in `hey_jarvis`, and fires the same way. For example,
 Replies use Kokoro's `bm_daniel`, a British male voice, and address you as "sir".
 Change `tts_voice` (any Kokoro voice id; `b*` voices get British pronunciation) or
 `address_as` (empty for none) in your local config.
+
+### Music ducking
+
+While Jarvis is engaged (from the wake word until the conversation ends) it lowers
+Spotify and Apple Music to `duck_ratio` (default 0.2) of their current level, then
+fades them back to exactly where they were. Only each app's own volume is changed,
+never the system volume Jarvis speaks at, and only apps that are already running.
+If you change an app's volume while it is ducked, your choice is kept. Levels are
+saved to `~/.jarvis/voice/duck.json` while ducked, so a crash cannot leave music
+low: the next start restores them. Music started mid-conversation is lowered before
+the next sentence, but a hung or launching app never delays speech by more than about
+0.3 s, and an app that fails is left alone until the conversation ends. Set
+`duck_music: false` to turn it off. macOS has
+no per-app volume API, so only Spotify and Apple Music can be ducked.
+
+### Barge-in
+
+Say "wait", "no", "hold up", "hang on", "hold on" or "jarvis" while Jarvis is reading
+a reply and it stops at once, drops the rest of Claude's answer without losing the
+Claude session, and listens for what you say next. That next turn goes to Claude with a
+note of roughly where it was cut off, based on how much of the sentence actually played.
+A stop phrase on its own ("wait", "hold up") just stops it and leaves it listening; "stop"
+or "nevermind" still ends the conversation with "Okay.".
+
+There is no echo cancellation: the mic listens while Jarvis speaks, so a phrase counts
+only if it is not in the sentence being spoken (Jarvis saying "no problem" cannot stop
+itself). The mic also hears the words Jarvis played just before you cut in, so the
+transcript of what you say next is trimmed to start at your stop phrase ("...sunny and
+wait, play jazz" reaches Claude as "wait, play jazz"). Detection is word-based: a
+separate Whisper (no vocabulary prompt, so it never "hears" a prompt word like Jarvis in
+noise) transcribes the last two seconds every quarter second, and a phrase must show up
+in two windows in a row (a window cut mid-word can turn "nothing" into "no idea"), so
+expect about three quarters of a second before it stops. Only reply sentences can be interrupted: confirmation
+questions, tones and error messages still play with the mic muted, and interrupting
+while Claude is still thinking (before it starts speaking) is not covered yet. Set
+`barge_in: false` to keep the mic muted for all playback, or change `stop_phrases`.
+
+`scripts/bargein_soak.py` checks for false barge-ins offline: it synthesizes 22 replies
+full of near-misses ("now", "know", "nothing", "wait time", "on hold", "Jarvis") with
+your Kokoro voice and feeds them to the real listener; a hit means Jarvis stopped itself.
+It reported 0 hits (1 with `--single-window`) clean, with noise and at low gain. It feeds
+the TTS audio in directly, so it does not model the room: speaker and mic coloring,
+reverb, or music playing in the background.
 
 ### Confirmation rules
 
