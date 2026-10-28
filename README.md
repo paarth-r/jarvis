@@ -120,7 +120,15 @@ so they work from one webcam; the mono cursor path is unchanged.
 
 ### Gesture studio
 
-While Jarvis runs, open **http://127.0.0.1:8765**. On the left, your tracked
+```bash
+./run_studio.sh             # mono Jarvis + opens the studio in your browser; Ctrl-C quits
+./run_studio.sh other.yaml  # same, with another config
+```
+
+The studio lives inside the running Jarvis (so hand control of the cursor is on
+too), at **http://127.0.0.1:8765**; if something else holds that port,
+`run_studio.sh` takes the next free one and opens that instead
+(`JARVIS_STUDIO_PORT` sets it by hand). On the left, your tracked
 hand in 3D (drag to orbit), the active gesture, how closely your hand matches each
 custom gesture, and the tilt gauge while you scroll. On the right, every gesture
 with its binding.

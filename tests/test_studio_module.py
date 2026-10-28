@@ -191,6 +191,17 @@ async def test_state_has_hand_and_recent_gesture_events(studio):
     assert st["events"][-1]["name"] == "point"
 
 
+async def test_port_env_overrides_config(monkeypatch):
+    monkeypatch.setenv("JARVIS_STUDIO_PORT", "0")
+    mod = StudioModule("studio", {"port": 8765})
+    await mod.setup(EventBus())
+    await mod.server.start()
+    try:
+        assert mod.server.port not in (0, 8765)
+    finally:
+        await mod.server.stop()
+
+
 async def test_index_and_static_files(studio):
     status, _ = await _request(studio.server.port, "GET", "/")
     assert status == 200

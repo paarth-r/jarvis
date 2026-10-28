@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from collections import deque
 from pathlib import Path
@@ -47,7 +48,10 @@ class StudioModule(Module):
         await super().setup(bus)
         self.library = GestureLibrary(self.config.get("library_path"))
         self.runner = ActionRunner()
-        self.server = HttpServer(self.config.get("host", "127.0.0.1"), self.config.get("port", 8765))
+        # JARVIS_STUDIO_PORT wins over the config, so run_studio.sh can step
+        # around a port something else already holds.
+        port = int(os.environ.get("JARVIS_STUDIO_PORT") or self.config.get("port", 8765))
+        self.server = HttpServer(self.config.get("host", "127.0.0.1"), port)
         self._routes()
         self._hand: Optional[Tuple[float, np.ndarray]] = None
         self._state: Optional[GestureStateEvent] = None
