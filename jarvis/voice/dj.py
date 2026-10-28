@@ -88,6 +88,7 @@ def run(argv: list[str], speakers: MacSpeakers, library,
             raise SpeakerError("only songs (and podcast episodes) can be queued; "
                                "play an album or playlist instead")
         lib.queue_add(uri)
+        sleep(SETTLE_S)  # Spotify's queue read lags the add
         return {"queued": uri, "up_next": lib.up_next(a.limit)["queue"]}
     if a.cmd == "search":
         return speakers.search(a.query, a.kind, a.limit)
