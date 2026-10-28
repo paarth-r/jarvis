@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="600" viewBox="0 0 1280 600" role="img" aria-label="How Jarvis works: gesture, eye-tracking and voice pipelines">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .lane { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; }
+      .box { fill: #0f172a; stroke-width: 1.5; }
+      .t { fill: #f1f5f9; font-size: 16px; font-weight: 600; text-anchor: middle; }
+      .s { fill: #94a3b8; font-size: 12.5px; text-anchor: middle; }
+      .edge { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .note { fill: #94a3b8; font-size: 13px; }
+    </style>
+  </defs>
+  <rect width="1280" height="600" rx="20" fill="#0b1020"/>
+
+  <!-- Gestures -->
+  <text x="40" y="52" class="lane" fill="#7dd3fc">GESTURES</text>
+  <g>
+    <rect class="box" x="40" y="70" width="170" height="74" rx="12" stroke="#38bdf8"/>
+    <text class="t" x="125" y="102">Camera</text><text class="s" x="125" y="124">stereo pair or webcam</text>
+    <rect class="box" x="250" y="70" width="190" height="74" rx="12" stroke="#38bdf8"/>
+    <text class="t" x="345" y="102">MediaPipe hands</text><text class="s" x="345" y="124">21 landmarks per hand</text>
+    <rect class="box" x="480" y="70" width="190" height="74" rx="12" stroke="#38bdf8"/>
+    <text class="t" x="575" y="102">Stereo fusion</text><text class="s" x="575" y="124">3D world coordinates</text>
+    <rect class="box" x="710" y="70" width="210" height="74" rx="12" stroke="#38bdf8"/>
+    <text class="t" x="815" y="102">Gesture engine</text><text class="s" x="815" y="124">one gesture at a time</text>
+    <rect class="box" x="960" y="70" width="280" height="74" rx="12" stroke="#38bdf8"/>
+    <text class="t" x="1100" y="102">Actions</text><text class="s" x="1100" y="124">cursor, click, scroll, media, macros</text>
+    <path class="edge" d="M210 107H246"/><path class="edge" d="M440 107H476"/>
+    <path class="edge" d="M670 107H706"/><path class="edge" d="M920 107H956"/>
+    <text class="note" x="710" y="170">custom gestures: a few takes in the studio, checked for being distinct from the rest</text>
+  </g>
+
+  <!-- Eye tracking -->
+  <text x="40" y="232" class="lane" fill="#c4b5fd">EYE TRACKING</text>
+  <g>
+    <rect class="box" x="40" y="250" width="170" height="74" rx="12" stroke="#a78bfa"/>
+    <text class="t" x="125" y="282">Webcam</text><text class="s" x="125" y="304">face and hand</text>
+    <rect class="box" x="250" y="250" width="190" height="74" rx="12" stroke="#a78bfa"/>
+    <text class="t" x="345" y="282">Face landmarks</text><text class="s" x="345" y="304">iris + head pose</text>
+    <rect class="box" x="480" y="250" width="190" height="74" rx="12" stroke="#a78bfa"/>
+    <text class="t" x="575" y="282">Gaze model</text><text class="s" x="575" y="304">13-dot calibration</text>
+    <rect class="box" x="710" y="250" width="210" height="74" rx="12" stroke="#a78bfa"/>
+    <text class="t" x="815" y="282">1-euro filter</text><text class="s" x="815" y="304">steady, then quick</text>
+    <rect class="box" x="960" y="250" width="280" height="74" rx="12" stroke="#a78bfa"/>
+    <text class="t" x="1100" y="282">Cursor follows your eyes</text><text class="s" x="1100" y="304">pinch to click, hold to drag</text>
+    <path class="edge" d="M210 287H246"/><path class="edge" d="M440 287H476"/>
+    <path class="edge" d="M670 287H706"/><path class="edge" d="M920 287H956"/>
+  </g>
+
+  <!-- Voice -->
+  <text x="40" y="392" class="lane" fill="#6ee7b7">VOICE</text>
+  <g>
+    <rect class="box" x="40" y="410" width="170" height="74" rx="12" stroke="#34d399"/>
+    <text class="t" x="125" y="442">"Hey Jarvis"</text><text class="s" x="125" y="464">openWakeWord</text>
+    <rect class="box" x="250" y="410" width="190" height="74" rx="12" stroke="#34d399"/>
+    <text class="t" x="345" y="442">End of turn</text><text class="s" x="345" y="464">Silero VAD + smart-turn</text>
+    <rect class="box" x="480" y="410" width="190" height="74" rx="12" stroke="#34d399"/>
+    <text class="t" x="575" y="442">Whisper</text><text class="s" x="575" y="464">local speech-to-text</text>
+    <rect class="box" x="710" y="410" width="210" height="74" rx="12" stroke="#34d399"/>
+    <text class="t" x="815" y="442">Claude Code</text><text class="s" x="815" y="464">skills, tools, memory</text>
+    <rect class="box" x="960" y="410" width="280" height="74" rx="12" stroke="#34d399"/>
+    <text class="t" x="1100" y="442">Kokoro TTS</text><text class="s" x="1100" y="464">spoken sentence by sentence</text>
+    <path class="edge" d="M210 447H246"/><path class="edge" d="M440 447H476"/>
+    <path class="edge" d="M670 447H706"/><path class="edge" d="M920 447H956"/>
+    <path class="edge" d="M1100 484 V530 H345 V488" stroke-dasharray="5 5"/>
+    <text class="note" x="560" y="556">say "wait" or "hold up" mid-reply to cut it off; music ducks while you talk</text>
+  </g>
+</svg>
