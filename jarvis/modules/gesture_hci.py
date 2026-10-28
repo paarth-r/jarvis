@@ -146,6 +146,10 @@ class GestureHCIModule(Module):
         self.library = GestureLibrary(gcfg.get("library_path"))
         self._reload_s: float = gcfg.get("reload_s", 0.5)
         self._last_reload = time.perf_counter()
+        self._feat_alpha: float = gcfg.get("feature_smoothing", 0.5)  # weight of the newest frame
+        self._feat: Optional[np.ndarray] = None
+        self._feat_ts: Optional[float] = None
+        self._now = 0.0
         self._load_matcher()
         scroll = dict(self.config.get("scroll", {}) or {})
         self._scroll_enabled: bool = scroll.pop("enabled", True)
@@ -164,9 +168,19 @@ class GestureHCIModule(Module):
 
     def _load_matcher(self) -> None:
         self.matcher = Matcher.from_library(self.library)
-        self.engine.matcher = (
-            (lambda shape: self.matcher.match(features(shape))) if len(self.matcher) else None
-        )
+        self.engine.matcher = self._match if len(self.matcher) else None
+
+    def _match(self, shape: np.ndarray):
+        # Single-frame features jitter with the tracker; a short EMA steadies
+        # them. Restart it after a gap so a new hand isn't blended with an old one.
+        f = features(shape)
+        if self._feat is None or self._feat_ts is None or self._now - self._feat_ts > 0.2:
+            self._feat = f
+        else:
+            a = self._feat_alpha
+            self._feat = a * f + (1 - a) * self._feat
+        self._feat_ts = self._now
+        return self.matcher.match(self._feat)
 
     async def _arbitrate(self, event: WorldPoseEvent) -> bool:
         """Run the gesture engine, publish start/end, lock pinch out while a
@@ -177,6 +191,7 @@ class GestureHCIModule(Module):
             self._last_reload = now
             if self.library.reload_if_changed():
                 self._load_matcher()
+        self._now = event.timestamp
         pinch_state = self._fsm.state
         frame = self.engine.update(
             event.hand_shape, "open" if pinch_state == "locked" else pinch_state,
