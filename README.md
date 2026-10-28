@@ -232,7 +232,9 @@ or "nevermind" still ends the conversation with "Okay.".
 
 There is no echo cancellation: the mic listens while Jarvis speaks, so a phrase counts
 only if it is not in the sentence being spoken (Jarvis saying "no problem" cannot stop
-itself). Detection is word-based (Whisper on the last couple of seconds), so expect about
+itself). The mic also hears the words Jarvis played just before you cut in, so the
+transcript of what you say next is trimmed to start at your stop phrase ("...sunny and
+wait, play jazz" reaches Claude as "wait, play jazz"). Detection is word-based (Whisper on the last couple of seconds), so expect about
 half a second before it stops. Only reply sentences can be interrupted: confirmation
 questions, tones and error messages still play with the mic muted, and interrupting
 while Claude is still thinking (before it starts speaking) is not covered yet. Set

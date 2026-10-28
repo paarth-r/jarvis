@@ -103,6 +103,34 @@ def _trails_off(text: str) -> bool:
     words = _normalize(stripped).split()
     return bool(words) and words[-1] in TRAILING_WORDS
 
+
+
+def _trim_echo(transcript: str, phrase: str, said: str) -> str:
+    """Drop Jarvis's own words from the front of a post-interrupt transcript.
+
+    The listener's VAD hears the speaker, so the captured audio (and the transcript
+    of it plus the continuation) begins with the words played before the stop
+    phrase: "The weather today is sunny and wait". Keep from the first whole-word
+    `phrase` on; if it is not there, drop a leading run of the sentence's words.
+    """
+    tokens = transcript.split()
+    norms = [_normalize(t) for t in tokens]
+    target = _normalize(phrase).split()
+    if target:
+        for i in range(len(tokens) - len(target) + 1):
+            if norms[i:i + len(target)] == target:
+                return " ".join(tokens[i:])
+    played = _normalize(said).split()
+    i = j = 0
+    while i < len(tokens):
+        if norms[i]:
+            if norms[i] not in played[j:]:
+                break
+            j = played.index(norms[i], j) + 1
+        i += 1
+    return " ".join(tokens[i:])
+
+
 # What the conversation does after an utterance.
 FOLLOWUP = "followup"  # answered: open the follow-up window
 WAKE_ONLY = "wake"  # only the wake phrase was heard
@@ -113,9 +141,11 @@ INTERRUPTED = "interrupted"  # a stop phrase cut the reply off: record the rest
 class Interrupted(Exception):
     """A stop phrase was heard during a reply sentence."""
 
-    def __init__(self, audio: np.ndarray) -> None:
+    def __init__(self, audio: np.ndarray, phrase: str = "", sentence: str = "") -> None:
         super().__init__("interrupted")
-        self.audio = audio  # the user's speech so far, from where the phrase began
+        self.audio = audio  # the window that heard the phrase (often with Jarvis's echo)
+        self.phrase = phrase  # the stop phrase that was heard
+        self.sentence = sentence  # the sentence being played when it was heard
 
 
 def _normalize(text: str) -> str:
@@ -257,10 +287,13 @@ class VoiceLoop:
             await self._fail(exc)
             return IDLE
         self._archive(audio, transcript)
+        cut, self._interrupt = self._interrupt, None
+        after_cut = cut is not None
+        if cut is not None and transcript:
+            # What the mic caught of Jarvis's own voice is not the user speaking.
+            transcript = _trim_echo(transcript, cut.phrase, cut.sentence) or None
         trace("heard", transcript or "(nothing)")
         text = strip_wake_phrase(transcript) if transcript else ""
-        after_cut = self._interrupt is not None
-        self._interrupt = None
         if not text:
             if after_cut:
                 return FOLLOWUP  # "Jarvis" alone: it stopped, now it listens
@@ -468,7 +501,7 @@ class VoiceLoop:
         if played:
             self._said.append(played)
         self._cutting = True
-        raise Interrupted(hit.audio)
+        raise Interrupted(hit.audio, hit.phrase, speakable)
 
     async def _play_listening(self, samples: Any, sr: int, speakable: str) -> tuple[Any, float]:
         """Play a clip while the barge-in listener pulls the mic; stop on a stop phrase."""

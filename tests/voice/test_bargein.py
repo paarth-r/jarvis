@@ -145,3 +145,17 @@ async def test_stop_word_after_segment_reset_still_fires() -> None:
     stt = Seq("")
     result = await _listener(vad, stt).listen(Frames(60), lambda: "", asyncio.Event())
     assert result is not None and result.phrase == "wait" and result.audio[0] == 14
+
+
+async def test_hit_audio_is_only_the_window_that_heard_it() -> None:
+    # The segment began with Jarvis's own voice: keep just the STT window, not all of it.
+    class Late(FakeSTT):
+        def transcribe(self, audio):
+            self.calls.append(len(audio))
+            return "wait" if len(self.calls) >= 6 else "the weather today"
+
+    stt = Late("")
+    result = await _listener(FakeVAD([True]), stt).listen(Frames(100), lambda: "", asyncio.Event())
+    assert result is not None and result.phrase == "wait"
+    assert len(result.audio) == stt.calls[-1] <= 2 * 16000
+    assert result.audio[0] > 1  # the first speech frames fell out of the window

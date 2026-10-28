@@ -15,7 +15,9 @@ SILENCE_END_S = 0.4  # this much non-speech ends a segment
 
 class BargeIn(NamedTuple):
     phrase: str
-    audio: np.ndarray  # int16 16 kHz speech captured since the speech began
+    # int16 16 kHz: the STT window that heard the phrase, not the whole segment, which
+    # starts at Jarvis's own first word (the VAD hears the speaker too).
+    audio: np.ndarray
 
 
 def _normalize(text: str) -> str:
@@ -96,4 +98,4 @@ class BargeInListener:
         window = np.concatenate(segment[-self._window:])
         text = await asyncio.to_thread(self._stt.transcribe, window)
         phrase = find_stop_phrase(text or "", speaking(), self._phrases)
-        return BargeIn(phrase, np.concatenate(segment)) if phrase else None
+        return BargeIn(phrase, window) if phrase else None

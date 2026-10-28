@@ -1084,3 +1084,57 @@ async def test_never_mind_then_a_new_request_after_an_interrupt_goes_to_claude()
     await asyncio.wait_for(loop.run(), timeout=2)
     assert brain.asked[1] == PREFIX + "no wait, never mind, play rock"
     assert d.player.played[-1] == "Rock it is."
+
+
+# The listener's VAD hears Jarvis's own voice too, so the audio it captured (and the
+# continuation transcript) starts with the words played before the stop phrase.
+
+async def test_echoed_words_then_wait_open_the_followup_silently():
+    brain = InterruptBrain([STORY, ["Dogs are great."]])
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["tell me a story", "One two wait.", "dogs?"],
+                         brain, hits=[BargeIn("wait", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One two three four.", "Dogs are great."]
+    assert brain.asked == ["tell me a story", PREFIX + "dogs?"]
+
+
+async def test_echoed_words_then_stop_cancel():
+    brain = InterruptBrain([STORY, ["unused"]])
+    loop, d = make_barge([AUDIO, AUDIO, AUDIO], ["tell me a story", "One two three stop",
+                                                 "never heard"],
+                         brain, hits=[BargeIn("stop", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert d.player.played == ["tone:wake", "One two three four.", "Okay."]
+    assert brain.asked == ["tell me a story"]
+
+
+async def test_echoed_words_are_trimmed_before_claude_and_the_log(capsys):
+    brain = InterruptBrain([STORY, ["Jazz it is."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "One two, wait, play jazz instead"],
+                         brain, hits=[BargeIn("wait", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert brain.asked[1] == PREFIX + "wait, play jazz instead"
+    assert d.log.turns[1] == ("wait, play jazz instead", "Jazz it is.")
+    err = capsys.readouterr().err
+    assert "[heard] wait, play jazz instead" in err
+    assert "[heard] One two" not in err
+
+
+async def test_echo_without_the_heard_phrase_strips_the_played_words():
+    # Whisper heard the stop phrase in its window but not in the full continuation.
+    brain = InterruptBrain([STORY, ["Jazz it is."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "One two three, play jazz"],
+                         brain, hits=[BargeIn("hold up", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert brain.asked[1] == PREFIX + "play jazz"
+
+
+def test_trim_echo():
+    from jarvis.voice.loop import _trim_echo
+    said = "The weather today is sunny."
+    assert _trim_echo("The weather today is sunny and wait", "wait", said) == "wait"
+    assert _trim_echo("weather today, hold up, play jazz", "hold up", said) == "hold up, play jazz"
+    assert _trim_echo("The weather today play jazz", "wait", said) == "play jazz"
+    assert _trim_echo("play jazz", "wait", said) == "play jazz"
+    assert _trim_echo("The weather today is sunny.", "wait", said) == ""
+    assert _trim_echo("Hey Jarvis, play jazz", "jarvis", said) == "Jarvis, play jazz"
