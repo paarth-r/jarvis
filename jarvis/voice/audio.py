@@ -108,9 +108,11 @@ class Player:
             n = min(frames, len(self._buf) - self._pos)
             outdata[:n, 0] = self._buf[self._pos:self._pos + n]
             outdata[n:, 0] = 0.0
+            before = self._pos
             self._pos += n
             if self._pos >= len(self._buf):
-                self._played = len(self._buf)
+                if before < len(self._buf):
+                    self._played = len(self._buf)  # ran to the end; a stop() already recorded its own
                 self._drained.set()
 
     def _rate(self) -> int:

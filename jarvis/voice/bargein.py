@@ -70,6 +70,13 @@ class BargeInListener:
                 segment.append(frame)
                 silence += 1
                 if silence >= self._silence_end:
+                    hit = None
+                    if speech >= self._min and since_stt:
+                        hit = await self._check(segment, speaking)
+                    if done.is_set():
+                        return None
+                    if hit:
+                        return hit
                     segment, speech, silence, since_stt = [], 0, 0, 0
                 continue
             else:
@@ -78,9 +85,15 @@ class BargeInListener:
             if speech < self._min or since_stt < self._step:
                 continue
             since_stt = 0
-            window = np.concatenate(segment[-self._window:])
-            text = await asyncio.to_thread(self._stt.transcribe, window)
-            phrase = find_stop_phrase(text or "", speaking(), self._phrases)
-            if phrase:
-                return BargeIn(phrase, np.concatenate(segment))
+            hit = await self._check(segment, speaking)
+            if done.is_set():
+                return None
+            if hit:
+                return hit
         return None
+
+    async def _check(self, segment: list[np.ndarray], speaking: Callable[[], str]) -> BargeIn | None:
+        window = np.concatenate(segment[-self._window:])
+        text = await asyncio.to_thread(self._stt.transcribe, window)
+        phrase = find_stop_phrase(text or "", speaking(), self._phrases)
+        return BargeIn(phrase, np.concatenate(segment)) if phrase else None

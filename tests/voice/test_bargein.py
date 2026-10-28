@@ -107,3 +107,41 @@ async def test_iterator_end_returns_none_and_resets_vad() -> None:
     vad = FakeVAD([False])
     result = await _listener(vad, FakeSTT("wait")).listen(Frames(3), lambda: "", asyncio.Event())
     assert result is None and vad.resets == 1
+
+
+async def test_short_stop_word_is_transcribed_at_segment_end() -> None:
+    stt = FakeSTT("no")
+    vad = FakeVAD([True] * 5 + [False])
+    result = await _listener(vad, stt).listen(Frames(40), lambda: "", asyncio.Event())
+    assert result is not None and result.phrase == "no" and len(stt.calls) == 1
+
+
+async def test_done_set_during_stt_returns_none() -> None:
+    done = asyncio.Event()
+
+    class SetsDone(FakeSTT):
+        def transcribe(self, audio):
+            done.set()
+            return super().transcribe(audio)
+
+    result = await _listener(FakeVAD([True]), SetsDone("wait")).listen(Frames(40), lambda: "", done)
+    assert result is None
+
+
+async def test_stt_cadence_over_long_segment() -> None:
+    stt = FakeSTT("nothing")
+    await _listener(FakeVAD([True]), stt).listen(Frames(50), lambda: "", asyncio.Event())
+    assert 5 <= len(stt.calls) <= 8  # one per ~0.5 s once past min_speech_s
+    assert max(stt.calls) <= 2 * 16000  # only the last window_s
+
+
+async def test_stop_word_after_segment_reset_still_fires() -> None:
+    class Seq(FakeSTT):
+        def transcribe(self, audio):
+            self.calls.append(len(audio))
+            return "wait" if len(self.calls) >= 2 else "hello"
+
+    vad = FakeVAD([True] * 5 + [False] * 8 + [True] * 5 + [False])
+    stt = Seq("")
+    result = await _listener(vad, stt).listen(Frames(60), lambda: "", asyncio.Event())
+    assert result is not None and result.phrase == "wait" and result.audio[0] == 14
