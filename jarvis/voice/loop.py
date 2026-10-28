@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import re
 import sys
+import time
 import traceback
 from collections.abc import AsyncIterator
 from typing import Any
@@ -37,6 +38,9 @@ MAX_CONTINUATIONS = 2
 TRAILING_WORDS = {"uh", "um", "uhm", "umm", "er", "erm", "hmm", "like", "and", "but", "or",
                   "because", "the", "a", "an", "to", "of", "with", "for"}
 MUTE_TAIL_S = 0.3
+# Mic audio queued longer than this since the last reply sentence (Claude thinking,
+# a tool call) is dropped before listening for stop phrases again.
+STALE_AUDIO_S = 1.0
 NEW_CONVERSATION = "new conversation"
 # Said on its own, any of these drops the conversation without asking Claude.
 CANCEL_PHRASES = {"nevermind", "never mind", "cancel", "stop", "forget it", "thats all"}
@@ -138,6 +142,8 @@ class VoiceLoop:
         self._cut: str | None = None  # what Claude's reply got out before an interrupt
         self._interrupt: Interrupted | None = None
         self._cutting = False  # a reply was just cut off: queued confirmations are denied
+        self._clock = time.monotonic
+        self._listened_at: float | None = None  # when the last listened sentence ended
 
     # -- main loop ---------------------------------------------------------
 
@@ -325,6 +331,7 @@ class VoiceLoop:
 
     async def _answer(self, text: str) -> None:
         splitter = SentenceSplitter()
+        self._listened_at = None
         # aclosing: if speaking fails mid-stream, the brain's generator is closed
         # now (recycling its client), not whenever it is garbage collected.
         async with contextlib.aclosing(self.brain.ask(text)) as reply:
@@ -438,12 +445,15 @@ class VoiceLoop:
                 await self.player.play(samples, sr)
             self._said.append(speakable)
             return
-        with self.mic.mute(MUTE_TAIL_S):
-            pass  # drop frames queued while Claude was thinking: they are not a reply to this
+        if self._listened_at is None or self._clock() - self._listened_at > STALE_AUDIO_S:
+            with self.mic.mute(MUTE_TAIL_S):
+                pass  # drop frames queued while Claude was thinking: they are not a reply to this
+        # Otherwise keep what queued since the last sentence: a "wait" said in between counts.
         hit, fraction = await self._play_listening(samples, sr, speakable)
         if hit is None:
             with self.mic.mute(MUTE_TAIL_S):
                 pass  # tail only: the room's echo of the last word is not the user
+            self._listened_at = self._clock()
             self._said.append(speakable)
             return
         # No tail here: what the mic hears next is the user still talking.

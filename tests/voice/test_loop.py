@@ -873,8 +873,8 @@ async def test_reply_plays_unmuted_while_listening_for_stop_words():
     assert d.player.played == ["tone:wake", "One.", "Two."]
     assert d.player.muted_flags == [True, False, False]  # the wake tone stays muted
     assert d.barge.speaking == ["One.", "Two."]  # echo check sees the current sentence
-    # Wake tone, then per sentence: drop frames queued while thinking, and a 0.3 s tail.
-    assert d.mic.mute_calls == 5
+    # Wake tone, frames queued while thinking dropped once, a 0.3 s tail per sentence.
+    assert d.mic.mute_calls == 4
     assert d.player.stops == 0
 
 
@@ -975,3 +975,94 @@ async def test_confirm_queued_behind_an_interrupted_sentence_is_denied_silently(
     # The continuation went to Claude, not to the confirmation.
     assert brain.asked[1].endswith("no, email Bob instead")
     assert d.recorder.timeouts == [6, 8.0, 8.0]
+
+
+STOP_FRAME = np.full(1280, 7, dtype=np.int16)
+
+
+class QueueMic(FakeMic):
+    """A queued mic: mute() drains what is pending, like MicStream."""
+
+    def __init__(self) -> None:
+        super().__init__(0)
+        self.pending: list[np.ndarray] = []
+
+    async def frames(self):
+        while True:
+            await asyncio.sleep(0.001)
+            yield self.pending.pop(0) if self.pending else None  # None: nothing yet
+
+    @contextmanager
+    def mute(self, seconds_tail: float = 0.3):
+        self.pending.clear()
+        with super().mute(seconds_tail):
+            yield
+        self.pending.clear()
+
+
+class FrameBarge:
+    """Reads the real frames iterator; STOP_FRAME is the user saying "wait"."""
+
+    async def listen(self, frames, speaking, done):
+        while not done.is_set():
+            frame = await anext(frames)
+            if frame is not None and frame[0] == 7:
+                return BargeIn("wait", CAPTURED)
+        return None
+
+
+class QueueingBrain(InterruptBrain):
+    """Streams a reply, queueing mic frames (and moving the clock) between sentences."""
+
+    def __init__(self, script, mic, clock=None) -> None:
+        super().__init__()
+        self.script, self.mic, self.clock = script, mic, clock
+
+    async def ask(self, text):
+        self.asked.append(text)
+        try:
+            for step in self.script:
+                if step == "stop":
+                    self.mic.pending.append(STOP_FRAME)
+                elif isinstance(step, float):
+                    self.clock[0] += step
+                else:
+                    yield step
+        finally:
+            self.events.append("closed")
+
+
+def make_queued(script, advance_clock=False):
+    loop, d = make_barge([], ["tell me"], None)
+    mic = loop.mic = d.mic = QueueMic()
+    d.player = loop.player = BargePlayer(mic)
+    loop.barge = FrameBarge()
+    clock = [100.0]
+    loop._clock = lambda: clock[0]
+    brain = loop.brain = QueueingBrain(script, mic, clock)
+    return loop, d, brain
+
+
+async def test_stop_word_between_sentences_cuts_the_next_one():
+    loop, d, brain = make_queued(["One two. Three", "stop", " four. Five", " six."])
+    await asyncio.wait_for(loop.handle_turn(AUDIO), timeout=2)
+    await loop.aclose()
+    assert brain.events[:2] == ["interrupt", "closed"]
+    assert d.player.played == ["One two.", "Three four."]
+
+
+async def test_audio_from_the_thinking_phase_is_dropped():
+    loop, d, brain = make_queued(["stop", "One two. Three", " four."])
+    await asyncio.wait_for(loop.handle_turn(AUDIO), timeout=2)
+    await loop.aclose()
+    assert "interrupt" not in brain.events
+    assert d.player.played == ["One two.", "Three four."]
+
+
+async def test_audio_from_a_long_pause_between_sentences_is_dropped():
+    # A tool call between sentences: what was queued meanwhile is not a reply to Jarvis.
+    loop, d, brain = make_queued(["One two. Three", "stop", 1.5, " four."])
+    await asyncio.wait_for(loop.handle_turn(AUDIO), timeout=2)
+    await loop.aclose()
+    assert "interrupt" not in brain.events
+    assert d.player.played == ["One two.", "Three four."]
