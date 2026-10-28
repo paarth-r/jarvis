@@ -729,8 +729,9 @@ from jarvis.voice.bargein import BargeIn  # noqa: E402
 class FakeBarge:
     """Scripted listener: one entry per listened sentence, a BargeIn or None."""
 
-    def __init__(self, hits=()) -> None:
+    def __init__(self, hits=(), delay: float = 0.0) -> None:
         self.hits = list(hits)
+        self.delay = delay
         self.speaking: list[str] = []
 
     async def listen(self, frames, speaking, done):
@@ -739,7 +740,7 @@ class FakeBarge:
         if hit is None:
             await done.wait()
             return None
-        await asyncio.sleep(0)  # playback has started
+        await asyncio.sleep(self.delay)  # playback has started
         return hit
 
 
@@ -937,3 +938,40 @@ async def test_listener_failure_never_fails_the_reply():
     await asyncio.wait_for(loop.run(), timeout=2)
     assert d.player.played == ["tone:wake", "One.", "Two."]
     assert d.log.turns == [("count", "One. Two.")]
+
+
+class DetachedConfirmBrain(InterruptBrain):
+    """The SDK's permission callback runs detached: it queues on the audio lock
+    while the sentence before the gated tool call is still playing."""
+
+    def __init__(self, replies=None) -> None:
+        super().__init__(replies)
+        self.pending: list[asyncio.Task] = []
+        self.speaking_lock = None
+
+    async def ask(self, text):
+        if not self.asked:
+            self.pending.append(asyncio.create_task(self._confirm_while_speaking()))
+        async for delta in super().ask(text):
+            yield delta
+
+    async def _confirm_while_speaking(self):
+        while self.speaking_lock is None or not self.speaking_lock.locked():
+            await asyncio.sleep(0)
+        return await self.confirm("Send it?")
+
+
+async def test_confirm_queued_behind_an_interrupted_sentence_is_denied_silently():
+    brain = DetachedConfirmBrain([["Sure, I'll email Sam. Then", " more."], ["Emailing Bob."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["email Sam", "no, email Bob instead"], brain,
+                         hits=[BargeIn("no", CAPTURED)])
+    brain.confirm = loop.confirm
+    brain.speaking_lock = loop._audio_lock
+    d.barge.delay = 0.01  # the user says "no" a moment into the sentence
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert [await t for t in brain.pending] == [False]
+    assert "Send it?" not in d.player.played
+    assert d.player.played[-1] == "Emailing Bob."
+    # The continuation went to Claude, not to the confirmation.
+    assert brain.asked[1].endswith("no, email Bob instead")
+    assert d.recorder.timeouts == [6, 8.0, 8.0]

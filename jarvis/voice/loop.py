@@ -137,6 +137,7 @@ class VoiceLoop:
         self._turn_active = False
         self._cut: str | None = None  # what Claude's reply got out before an interrupt
         self._interrupt: Interrupted | None = None
+        self._cutting = False  # a reply was just cut off: queued confirmations are denied
 
     # -- main loop ---------------------------------------------------------
 
@@ -225,6 +226,7 @@ class VoiceLoop:
     async def _process(self, audio: np.ndarray) -> str:
         """Handle one utterance; return FOLLOWUP, WAKE_ONLY or IDLE (what next)."""
         self._set("STT")
+        self._cutting = False
         try:
             transcript = await asyncio.to_thread(self.stt.transcribe, audio)
             for _ in range(MAX_CONTINUATIONS):
@@ -374,6 +376,10 @@ class VoiceLoop:
         await self._stop_working_tone()
         try:
             async with self._audio_lock:
+                if self._cutting:
+                    # Queued behind the sentence the user just cut off: they said
+                    # "wait", so deny without asking and keep the mic for their next words.
+                    return False
                 await self._say_unlocked(question)
                 audio = await self._record_unlocked(CONFIRM_TIMEOUT_S)
                 transcript = None
@@ -446,6 +452,7 @@ class VoiceLoop:
         played = " ".join(words[:round(len(words) * fraction)])
         if played:
             self._said.append(played)
+        self._cutting = True
         raise Interrupted(hit.audio)
 
     async def _play_listening(self, samples: Any, sr: int, speakable: str) -> tuple[Any, float]:
