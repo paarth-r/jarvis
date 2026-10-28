@@ -62,6 +62,7 @@ CLOSING_FILLER = {"jarvis", "claude", "hey", "sir", "man", "bro", "dude", "so", 
                   "very", "a", "lot", "then", "yeah", "yep", "and", "for", "that", "now"}
 # Said around stop phrases ("uh, wait"), these still leave nothing for Claude.
 STOP_FILLER = {"uh", "um", "umm", "oh", "ah", "hey", "sir"}
+_CANCEL_WORD = re.compile(r"\b(" + "|".join(map(re.escape, CANCEL_WORDS)) + r")\b")
 _CLOSING = re.compile(r"\b(" + "|".join(sorted(map(re.escape, CLOSING_PHRASES), key=len,
                                                reverse=True)) + r")\b")
 
@@ -70,7 +71,11 @@ def _is_cancel(text: str) -> bool:
     norm = _normalize(text)
     if norm in CANCEL_PHRASES:
         return True
-    return len(norm.split()) <= CANCEL_MAX_WORDS and any(w in norm for w in CANCEL_WORDS)
+    if len(norm.split()) > CANCEL_MAX_WORDS:
+        return False
+    ends = [m.end() for m in _CANCEL_WORD.finditer(norm)]
+    # "never mind, play rock" is a new request, not a cancel.
+    return bool(ends) and all(w in CLOSING_FILLER | STOP_FILLER for w in norm[max(ends):].split())
 
 
 def _is_closing(text: str) -> bool:

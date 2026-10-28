@@ -1066,3 +1066,21 @@ async def test_audio_from_a_long_pause_between_sentences_is_dropped():
     await loop.aclose()
     assert "interrupt" not in brain.events
     assert d.player.played == ["One two.", "Three four."]
+
+
+@pytest.mark.parametrize("text,cancels", [
+    ("wait, never mind", True), ("ah nevermind then", True), ("nevermind, forget it", True),
+    ("no wait, never mind, play rock", False), ("cancel that timer", False),
+])
+def test_cancel_word_only_cancels_with_nothing_after_it(text, cancels):
+    from jarvis.voice.loop import _is_cancel
+    assert _is_cancel(text) is cancels
+
+
+async def test_never_mind_then_a_new_request_after_an_interrupt_goes_to_claude():
+    brain = InterruptBrain([STORY, ["Rock it is."]])
+    loop, d = make_barge([AUDIO, AUDIO], ["tell me a story", "no wait, never mind, play rock"],
+                         brain, hits=[BargeIn("no", CAPTURED)])
+    await asyncio.wait_for(loop.run(), timeout=2)
+    assert brain.asked[1] == PREFIX + "no wait, never mind, play rock"
+    assert d.player.played[-1] == "Rock it is."
