@@ -7,7 +7,7 @@
 
 Let a developer *see* the system working: per-camera 2D hand-landmark overlays
 (proving detection) and an interactive 3D hand-skeleton view of the triangulated
-landmarks (proving stereo fusion). Modeled on Hyperform's body-pose `viewer_3d.py`.
+landmarks (proving stereo fusion). Modeled on an earlier body-pose `viewer_3d.py`.
 
 ## Background
 
@@ -23,7 +23,7 @@ removes** `DebugOverlayModule` in favor of an accurate visualizer.
 
 - **macOS GUI threading.** matplotlib's interactive window needs its own GUI
   event loop; running it in-process alongside the asyncio loop is unsafe.
-  Hyperform solves this by running the 3D viewer in a spawned subprocess. cv2
+  The body-pose viewer solves this by running the 3D viewer in a spawned subprocess. cv2
   HighGUI works from the main thread (the prototype uses it), and Jarvis's
   asyncio loop runs on the main thread, so cv2 calls from inside a coroutine are
   main-thread-safe.
@@ -37,7 +37,7 @@ The 3D IPC payload is just 21 points per frame (tiny), not camera frames.
 
 ### Component 1 — `jarvis/modules/viewer_3d.py` : `Viewer3D`
 
-Ported from Hyperform `tools/viewer_3d.py`, adapted to hands.
+Ported from an earlier body-pose `viewer_3d.py`, adapted to hands.
 
 - Spawns a subprocess (`multiprocessing.get_context("spawn")`) owning a
   matplotlib 3D figure; fed by a `multiprocessing.Queue(maxsize=2)`.
@@ -49,7 +49,7 @@ Ported from Hyperform `tools/viewer_3d.py`, adapted to hands.
 - **Coordinate mapping:** Jarvis world frame is OpenCV-style (X right, Y down,
   Z forward, origin at baseline midpoint). The viewer displays
   `(X_disp, Y_disp, Z_disp) = (x, z, -y)` → (right, depth, up) for an intuitive
-  upright view, matching Hyperform's convention.
+  upright view, matching the body-pose viewer's convention.
 - Public API: `start()`, `update(points)`, `close()`. `update` is non-blocking
   and drops a stale queued frame. `close()` sends a `None` sentinel.
 - Payload `points`: a list of 21 items, each `(x, y, z)` tuple or `None`.

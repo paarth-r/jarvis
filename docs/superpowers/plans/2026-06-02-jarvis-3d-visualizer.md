@@ -161,7 +161,7 @@ git commit -m "feat: add hand connections and pure 2D/3D landmark helpers"
 
 No unit tests spawn the subprocess (GUI). This task only verifies the module
 imports and that `hand_points` integration is sound (covered in Task 1). The
-worker body is ported from Hyperform `tools/viewer_3d.py`, adapted to 21 hand
+worker body follows an earlier body-pose `viewer_3d.py`, adapted to 21 hand
 landmarks and the `(x, z, -y)` display mapping already applied by `hand_points`.
 
 - [ ] **Step 1: Write viewer_3d.py**
