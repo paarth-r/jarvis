@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Callable
@@ -31,65 +32,81 @@ class MusicDucker:
         self._state_path = state_path
         self._sleep = sleep
         self._ducked: dict[str, tuple[int, int]] = {}  # app -> (previous, set_to)
+        self._lock = threading.Lock()
 
     def duck(self) -> None:
-        changed = False
-        for app in self._apps:
-            if app in self._ducked:
-                continue
-            try:
-                if self._osa(f'application "{app}" is running') != "true":
+        with self._lock:
+            for app in self._apps:
+                if app in self._ducked:
                     continue
-                volume = int(self._osa(f'sound volume of application "{app}"'))
-                if volume <= 0:
-                    continue
-                target = max(1, round(volume * self._ratio))
-                if target >= volume:
-                    continue
-                self._osa(f'set sound volume of application "{app}" to {target}')
-            except Exception as exc:
-                log.warning("could not duck %s: %s", app, exc)
-                continue
-            self._ducked[app] = (volume, target)
-            changed = True
-        if changed:
-            self._save()
+                try:
+                    if not self._running(app):
+                        continue
+                    volume = int(self._osa(f'tell application "{app}" to sound volume'))
+                    target = max(1, round(volume * self._ratio))
+                    if volume <= 0 or target >= volume:
+                        continue
+                    # recorded before the set so a crash in between cannot strand the music low
+                    self._ducked[app] = (volume, target)
+                    self._save()
+                    self._osa(f'tell application "{app}" to set sound volume to {target}')
+                except Exception as exc:
+                    log.warning("could not duck %s: %s", app, exc)
+                    if self._ducked.pop(app, None) is not None:
+                        self._save()
 
     def restore(self) -> None:
-        self._restore(self._ducked)
-        self._ducked = {}
-        self._forget_state()
+        with self._lock:
+            self._restore()
 
     def recover(self) -> None:
         """Undo a ducking left behind by a crashed run."""
-        if self._state_path is None or not self._state_path.exists():
+        if self._state_path is None:
             return
-        try:
-            raw = json.loads(self._state_path.read_text())
-            leftover = {app: (int(prev), int(set_to)) for app, (prev, set_to) in raw.items()}
-        except Exception as exc:
-            log.warning("ignoring corrupt duck state %s: %s", self._state_path, exc)
-            self._forget_state()
-            return
-        self._restore(leftover)
-        self._forget_state()
-
-    def _restore(self, ducked: dict[str, tuple[int, int]]) -> None:
-        for app, (previous, set_to) in ducked.items():
+        with self._lock:
+            if not self._state_path.exists():
+                return
             try:
-                current = int(self._osa(f'sound volume of application "{app}"'))
-                if current != set_to:
-                    continue  # the user changed it while ducked; keep their choice
-                for step in range(1, FADE_STEPS + 1):
-                    level = current + round((previous - current) * step / FADE_STEPS)
-                    self._osa(f'set sound volume of application "{app}" to {level}')
-                    if step < FADE_STEPS:
-                        self._sleep(FADE_PAUSE)
+                raw = json.loads(self._state_path.read_text())
+                leftover = {app: (int(prev), int(set_to)) for app, (prev, set_to) in raw.items()}
             except Exception as exc:
-                log.warning("could not restore %s: %s", app, exc)
+                log.warning("ignoring corrupt duck state %s: %s", self._state_path, exc)
+                self._forget_state()
+                return
+            for app, levels in leftover.items():
+                self._ducked.setdefault(app, levels)
+            self._restore()
+
+    def _running(self, app: str) -> bool:
+        return self._osa(f'application "{app}" is running') == "true"
+
+    def _restore(self) -> None:
+        for app, (previous, set_to) in list(self._ducked.items()):
+            try:
+                if not self._running(app):
+                    log.debug("%s quit while ducked", app)
+                    del self._ducked[app]
+                    continue
+                current = int(self._osa(f'tell application "{app}" to sound volume'))
+                ours = {set_to + round((previous - set_to) * s / FADE_STEPS)
+                        for s in range(FADE_STEPS + 1)}  # set_to, or left mid-fade by a failed restore
+                if current in ours:
+                    for step in range(1, FADE_STEPS + 1):
+                        level = current + round((previous - current) * step / FADE_STEPS)
+                        self._osa(f'tell application "{app}" to set sound volume to {level}')
+                        if step < FADE_STEPS:
+                            self._sleep(FADE_PAUSE)
+                # else the user changed it while ducked; keep their choice
+                del self._ducked[app]
+            except Exception as exc:
+                log.warning("could not restore %s (will retry): %s", app, exc)
+        self._save()
 
     def _save(self) -> None:
         if self._state_path is None:
+            return
+        if not self._ducked:
+            self._forget_state()
             return
         try:
             self._state_path.parent.mkdir(parents=True, exist_ok=True)

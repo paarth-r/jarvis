@@ -19,12 +19,12 @@ class FakeApps:
         m = re.fullmatch(r'application "(\w+)" is running', script)
         if m:
             return "true" if m.group(1) in self.volumes else "false"
-        m = re.fullmatch(r'sound volume of application "(\w+)"', script)
+        m = re.fullmatch(r'tell application "(\w+)" to sound volume', script)
         if m:
             if m.group(1) not in self.volumes:
                 raise SpeakerError("not running")
             return str(self.volumes[m.group(1)])
-        m = re.fullmatch(r'set sound volume of application "(\w+)" to (\d+)', script)
+        m = re.fullmatch(r'tell application "(\w+)" to set sound volume to (\d+)', script)
         if m:
             if m.group(1) not in self.volumes:
                 raise SpeakerError("not running")
@@ -71,7 +71,7 @@ def test_zero_volume_untouched():
     apps = FakeApps(Spotify=0)
     ducker, _ = make(apps)
     ducker.duck()
-    assert not any(s.startswith("set sound volume") for s in apps.scripts)
+    assert not any("set sound volume" in s for s in apps.scripts)
     ducker.restore()
     assert apps.volumes["Spotify"] == 0
 
@@ -102,7 +102,7 @@ def test_fade_steps_end_at_exact_previous():
     start = apps.volumes["Spotify"]
     apps.scripts.clear()
     ducker.restore()
-    sets = [int(s.rsplit(" ", 1)[1]) for s in apps.scripts if s.startswith("set sound volume")]
+    sets = [int(s.rsplit(" ", 1)[1]) for s in apps.scripts if "set sound volume" in s]
     assert len(sets) == 4
     assert sets == sorted(sets) and sets[0] > start and sets[-1] == 83
     assert sleeps == [0.12] * 3
@@ -164,7 +164,13 @@ def test_app_quit_while_ducked_is_skipped():
     ducker, _ = make(apps)
     ducker.duck()
     del apps.volumes["Spotify"]
+    apps.scripts.clear()
     ducker.restore()  # no raise
+    assert not any("set sound volume" in s for s in apps.scripts)
+    apps.volumes["Spotify"] = 70
+    apps.scripts.clear()
+    ducker.restore()  # forgotten: a relaunched app is left alone
+    assert apps.volumes["Spotify"] == 70
 
 
 def test_osascript_failure_swallowed(caplog):
@@ -187,3 +193,68 @@ def test_failure_in_one_app_does_not_block_other():
     ducker, _ = make(apps)
     ducker.duck()
     assert apps.volumes["Music"] == 10
+
+
+def test_ratio_is_configurable():
+    apps = FakeApps(Spotify=80)
+    ducker, _ = make(apps, ratio=0.5)
+    ducker.duck()
+    assert apps.volumes["Spotify"] == 40
+
+
+def test_state_written_before_set(tmp_path):
+    seen = []
+
+    class Spy(FakeApps):
+        def __call__(self, script):
+            if "set sound volume" in script:
+                seen.append((tmp_path / "duck.json").exists())
+            return super().__call__(script)
+
+    ducker, _ = make(Spy(Spotify=80), tmp_path)
+    ducker.duck()
+    assert seen == [True]
+
+
+def test_restore_failure_keeps_state_and_retries(tmp_path):
+    class Flaky(FakeApps):
+        failing = False
+
+        def __call__(self, script):
+            if self.failing and "sound volume" in script:
+                raise SpeakerError("transient")
+            return super().__call__(script)
+
+    apps = Flaky(Spotify=80)
+    ducker, _ = make(apps, tmp_path)
+    ducker.duck()
+    apps.failing = True
+    ducker.restore()
+    assert (tmp_path / "duck.json").exists() and apps.volumes["Spotify"] == 16
+    apps.failing = False
+    ducker.restore()
+    assert apps.volumes["Spotify"] == 80
+    assert not (tmp_path / "duck.json").exists()
+
+
+def test_restore_retry_after_partial_fade():
+    class DiesMidFade(FakeApps):
+        sets = 0
+
+        def __call__(self, script):
+            if "set sound volume" in script and self.armed:
+                self.sets += 1
+                if self.sets == 3:
+                    self.armed = False
+                    raise SpeakerError("transient")
+            return super().__call__(script)
+
+    apps = DiesMidFade(Spotify=80)
+    apps.armed = False
+    ducker, _ = make(apps)
+    ducker.duck()
+    apps.armed = True
+    ducker.restore()
+    assert apps.volumes["Spotify"] < 80
+    ducker.restore()
+    assert apps.volumes["Spotify"] == 80
