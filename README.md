@@ -3,8 +3,9 @@
 Vision-based human–computer interaction runtime. A stereo camera pair watches your
 hands; Jarvis tracks them with MediaPipe, triangulates the landmarks into 3D world
 coordinates, and turns gestures into actions — cursor movement, pinch to click or
-drag (a quick pinch clicks; holding it past `drag_hold_s` drags until released), and
-pointing — with a live 2D + 3D visualizer.
+drag (a quick pinch clicks; holding it past `drag_hold_s` drags until released),
+fist-then-tilt to scroll, and your own custom gestures bound to media keys, key
+combos or macros — with a live 2D + 3D visualizer and a browser-based gesture studio.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -24,14 +25,18 @@ CameraModule ──FrameEvent──▶ HandPoseModule ──PoseEvent──▶ S
                                                                   │
                                                           WorldPoseEvent (3D, metres)
                                                                   │
-                       ┌──────────────────────────┬──────────────┴───────────┐
-                  GestureHCIModule           PointingModule              VisualizerModule
-                   │ (cursor, pinch)          │ (index-finger ray)        │ (2D overlay + 3D view)
-              IntentEvent                  PointEvent ──▶ ActionDispatcher ──▶ OS action
+           ┌──────────────────────┬───────────────┼────────────────┬───────────────┐
+    GestureHCIModule        PointingModule   StudioModule     VisualizerModule
+     │ cursor, pinch,        (index ray)      (web UI, :8765)   (2D + 3D view)
+     │ gesture engine, scroll
+  GestureEvent ──▶ ActionDispatcher ──▶ media key / key combo / macro / shell
 ```
 
 - **`WorldPoseEvent` is the stereo boundary.** Everything upstream is per-camera;
   everything downstream works in shared 3D world coordinates.
+- **One gesture at a time.** `GestureHCIModule` runs a gesture engine that picks
+  a single active gesture per frame (see [Gestures](#gestures)); the dispatcher
+  only ever sees its arbitrated start/end events.
 - **Arm and LLM** run as independent subprocesses over JSON-lines bridges (stubs today).
 
 ## Install
@@ -84,6 +89,75 @@ The mono config runs the cursor in **box mode** (`gesture_hci.mode: box`):
 
 Other modes: `absolute` (legacy hand-position mapping via `screen_gain`) and
 `trackpad` (relative motion with pointer acceleration; fist = clutch).
+
+## Gestures
+
+| Gesture | What it does |
+|---|---|
+| pinch (thumb to index) | quick = click, held past `drag_hold_s` = drag |
+| fist, then tilt | scroll: tip your knuckles toward the camera to scroll down, back to scroll up |
+| point (index out) | bindable; Cmd+Space by default |
+| your own | whatever you bind: media key, key combo, typed text, shell command, macro |
+
+**One gesture at a time.** Every frame the hand shape yields at most one
+candidate (fist, then a custom gesture, then point). A candidate has to be held
+for a short dwell before it counts (fist 0.1 s, point 0.3 s, custom 0.15 s), and
+an active gesture survives tracking dropouts up to 0.1 s. Poses your hand only
+passes through never fire: the index straightening for a frame on the way into
+a fist is not a point. A fist-shaped hand locks pinch out from its first frame
+and holds the cursor, and pinch re-arms only after the thumb opens, so closing
+or opening a fist never clicks or drags. Pinch itself keeps its old latency.
+
+**Fist-tilt scroll.** Tilt is measured from the angle your fist had when it
+closed, so you can start from any wrist angle. Speed grows with tilt past a dead
+zone (rate control, like a joystick). Tune it under `gesture_hci.scroll`:
+`deadzone_deg` (8), `full_deg` (35), `max_px_s` (2500), `curve` (1.5),
+`smoothing`, `invert_y`, and `horizontal` (turning the forearm scrolls sideways;
+off by default).
+
+Shape and tilt use MediaPipe's metric hand landmarks (`WorldPoseEvent.hand_shape`),
+so they work from one webcam; the mono cursor path is unchanged.
+
+### Gesture studio
+
+While Jarvis runs, open **http://127.0.0.1:8765**. On the left, your tracked
+hand in 3D (drag to orbit), the active gesture, how closely your hand matches each
+custom gesture, and the tilt gauge while you scroll. On the right, every gesture
+with its binding.
+
+**Add a gesture** in five steps:
+
+1. Name it.
+2. Record takes (button or Space): a 3 s countdown, then hold for 1.5 s. Five
+   takes at slightly different hand angles is a good set.
+3. Optionally record 10 s of everyday hand movement, so the check can catch a
+   gesture you'd make by accident.
+4. Check it (Enter). Three verdicts, each pass / warn / fail with a hint:
+   - **Recognizable**: the tracker kept your hand (few dropouts) and held it
+     steadily (hidden fingers make it guess).
+   - **Repeatable**: your takes agree. An odd take is named and left out.
+   - **Distinct**: far enough from every saved gesture (it names the nearest and
+     the fingers that tell them apart), not read as fist or pinch (reserved),
+     a warning if it looks like point (it takes over point while held), and not
+     matching your everyday movement.
+5. Bind and save. A fail blocks saving; a warn doesn't.
+
+Custom gestures need no training step: they match your saved takes by nearest
+neighbour (few-shot, like the $1 recognizer), with an acceptance radius fitted to
+how much your takes vary, so anything outside every radius is no gesture. A
+gesture works the moment it's saved. While a take records, cursor control and
+gesture actions pause.
+
+**Bindings** cover media keys (play/pause, next, previous, volume, mute), key
+combos (press them in the field, or type `cmd+shift+4`), typed text, shell
+commands, and macros (steps of those plus waits). "Repeat while held" re-fires
+every N seconds (volume up held keeps turning it up). "Nothing" turns a default
+off. "Try it" runs a binding right away.
+
+Gestures and bindings live in `~/.jarvis/gestures.json` (override with
+`JARVIS_GESTURES_PATH`); the runtime picks up changes live. The studio listens on
+localhost only and refuses requests from other websites, since a binding can run
+a shell command.
 
 ### Eye-tracking cursor
 
@@ -287,7 +361,7 @@ See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 |---|---|
 | `cameras` | Per-camera `device`/`source`/`path`, `width/height/fps`, `intrinsics` (fx,fy,cx,cy), `distortion` (k1,k2,p1,p2,k3), `extrinsics` (camera-to-world R,t) |
 | `hand_pose` | MediaPipe `detection_confidence` (default 0.5) / `tracking_confidence`, applied to every camera |
-| `modules` | Declared modules + their settings (stereo fusion, gesture HCI, gaze + gaze HCI, pointing, action dispatcher, visualizer) |
+| `modules` | Declared modules + their settings (stereo fusion, gesture HCI incl. `gestures` dwell and `scroll`, gaze + gaze HCI, pointing, action dispatcher incl. `bindings`, studio `port`, visualizer) |
 | `subprocesses` | Optional arm / LLM subprocess bridges |
 
 ## Modules
@@ -297,11 +371,12 @@ See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 | `CameraModule` / `FileCameraModule` | device/file → `FrameEvent` |
 | `HandPoseModule` | `FrameEvent` → `PoseEvent` (per-camera 2D landmarks) |
 | `StereoFusionModule` | `PoseEvent` → `WorldPoseEvent` (3D triangulation, undistortion, mono fallback) |
-| `GestureHCIModule` | `WorldPoseEvent` → cursor move (`absolute`, `box` or `trackpad` mode) + pinch press/drag/release, `IntentEvent` |
+| `GestureHCIModule` | `WorldPoseEvent` → cursor move (`absolute`, `box` or `trackpad` mode) + pinch press/drag/release, fist-tilt scroll, `IntentEvent`; gesture engine → `GestureEvent` (start/end) + `GestureStateEvent` (every frame) |
 | `GazeModule` | `FrameEvent` → `GazeEvent` (face + iris landmarks → calibrated, smoothed screen point) |
 | `GazeHCIModule` | `GazeEvent` + `WorldPoseEvent` → gaze cursor (`follow` or `jump_on_pinch`), index pinch = left click/drag, middle pinch = right click |
 | `PointingModule` | `WorldPoseEvent` → `PointEvent` (index-finger ray) |
-| `ActionDispatcher` | `ActionEvent` / `PointEvent` → OS action (with cooldown) |
+| `ActionDispatcher` | `GestureEvent` / `ActionEvent` → bound action (media, keys, text, shell, macro), per-gesture cooldown, repeat while held |
+| `StudioModule` | `WorldPoseEvent` + `GestureStateEvent` → gesture studio web UI; `StudioModeEvent` pauses cursor and actions while recording |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |
 
 ## Testing
