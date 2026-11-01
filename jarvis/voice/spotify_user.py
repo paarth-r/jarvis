@@ -18,33 +18,44 @@ REDIRECT_URI = "http://127.0.0.1:8888/callback"
 SCOPES = " ".join([
     "playlist-read-private", "playlist-read-collaborative", "user-library-read",
     "user-top-read", "user-read-recently-played",
+    "user-modify-playback-state", "user-read-playback-state",
 ])
+# logins from before the queue command lack this; the rest keeps working without it
+QUEUE_SCOPE = "user-modify-playback-state"
 TOKEN_PATH = Path.home() / ".jarvis" / "spotify_user_token.json"
 
 
-def make_auth(client_id: str, token_path: Path = TOKEN_PATH, open_browser: bool = True):
+def make_auth(client_id: str, token_path: Path = TOKEN_PATH, open_browser: bool = True,
+              scope: str = SCOPES):
     from spotipy.oauth2 import SpotifyPKCE
 
     token_path.parent.mkdir(parents=True, exist_ok=True)
-    return SpotifyPKCE(client_id=client_id, redirect_uri=REDIRECT_URI, scope=SCOPES,
+    return SpotifyPKCE(client_id=client_id, redirect_uri=REDIRECT_URI, scope=scope,
                        cache_path=str(token_path), open_browser=open_browser)
 
 
 class UserLibrary:
     """Your playlists and Liked Songs. `client` is a spotipy.Spotify (or a fake)."""
 
-    def __init__(self, client) -> None:
+    def __init__(self, client, scopes: str = SCOPES) -> None:
         self._sp = client
         self._me: str | None = None
+        self.scopes = set(scopes.split())
 
     @classmethod
     def from_cache(cls, client_id: str | None, token_path: Path = TOKEN_PATH) -> "UserLibrary | None":
         """A library if a login token is cached, else None (never opens a browser)."""
         if not client_id or not token_path.exists():
             return None
+        import json
+
         import spotipy
 
-        return cls(spotipy.Spotify(auth_manager=make_auth(client_id, token_path, open_browser=False)))
+        # ask for exactly what the token has: spotipy treats a token missing any
+        # requested scope as no token and falls back to an interactive login
+        scope = json.loads(token_path.read_text()).get("scope", "")
+        auth = make_auth(client_id, token_path, open_browser=False, scope=scope)
+        return cls(spotipy.Spotify(auth_manager=auth), scopes=scope)
 
     def _user_id(self) -> str:
         if self._me is None:
@@ -104,6 +115,31 @@ class UserLibrary:
         page = self._sp.current_user_recently_played(limit=limit)
         return [{**_summarize(i["track"], "track"), "played_at": i.get("played_at", "")}
                 for i in page.get("items", []) if i and i.get("track")]
+
+    def queue_add(self, uri: str) -> None:
+        """Add a track after the current one on whichever device is playing."""
+        if QUEUE_SCOPE not in self.scopes:
+            raise SpeakerError("queueing needs a fresh Spotify login (one new permission): "
+                               "run jarvis-spotify-login")
+        from spotipy.exceptions import SpotifyException
+
+        try:
+            self._sp.add_to_queue(uri)
+        except SpotifyException as exc:
+            if exc.reason == "NO_ACTIVE_DEVICE" or exc.http_status == 404:
+                raise SpeakerError("nothing is playing to queue after: play something first") from exc
+            if exc.reason == "PREMIUM_REQUIRED":
+                raise SpeakerError("queueing needs Spotify Premium") from exc
+            raise SpeakerError(f"Spotify refused the queue: {exc.msg}") from exc
+
+    def up_next(self, limit: int = 10) -> dict:
+        """The current track and what is queued after it (Spotify's own queue)."""
+        from jarvis.voice.mac_speakers import _summarize
+
+        q = self._sp.queue() or {}
+        current = q.get("currently_playing")
+        return {"now_playing": _summarize(current, "track") if current else None,
+                "queue": [_summarize(t, "track") for t in q.get("queue", []) if t][:limit]}
 
     def liked_uri(self) -> str:
         return f"spotify:user:{self._user_id()}:collection"

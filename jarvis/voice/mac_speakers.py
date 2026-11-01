@@ -158,7 +158,8 @@ class MacSpeakers:
                                "login: run jarvis-spotify-login")
         return self._library
 
-    def _resolve(self, query: str, kind: str = "track") -> str:
+    def resolve(self, query: str, kind: str = "track") -> str:
+        """A Spotify link, or a name of `kind` looked up, as a spotify: URI."""
         uri = to_spotify_uri(query)
         if uri:
             return uri
@@ -187,7 +188,7 @@ class MacSpeakers:
         a whole.
         """
         if "query" in patch and patch["query"].strip():
-            uri = self._resolve(patch["query"], patch.get("kind", "track"))
+            uri = self.resolve(patch["query"], patch.get("kind", "track"))
             self._osa(f'tell application "Spotify" to play track "{uri}"')
             self._query = patch["query"]
         if "skip" in patch:

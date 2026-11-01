@@ -82,3 +82,58 @@ def test_login_doubles_as_catalog_search():
 
 def test_unrelated_name_is_not_a_fuzzy_match():
     assert UserLibrary(FakeSpotify()).search_playlists("workout") == []
+
+
+class FakePlayer(FakeSpotify):
+    """A Premium account with Spotify open: add_to_queue lands, queue() reads back."""
+
+    def __init__(self, error=None):
+        super().__init__()
+        self.queued, self.error = [], error
+
+    def add_to_queue(self, uri, device_id=None):
+        if self.error:
+            raise self.error
+        self.queued.append(uri)
+
+    def queue(self):
+        track = {"uri": "spotify:track:T1", "name": "Hype", "artists": [{"name": "Travis"}]}
+        return {"currently_playing": track, "queue": [track, None]}
+
+
+def test_queue_adds_through_the_web_api_and_reads_back():
+    player = FakePlayer()
+    lib = UserLibrary(player)
+    lib.queue_add("spotify:track:Q")
+    assert player.queued == ["spotify:track:Q"]
+    assert lib.up_next(5)["queue"][0]["name"] == "Hype"
+
+
+def test_queue_with_an_old_login_says_to_log_in_again():
+    lib = UserLibrary(FakePlayer(), scopes="playlist-read-private user-top-read")
+    with pytest.raises(SpeakerError, match="jarvis-spotify-login"):
+        lib.queue_add("spotify:track:Q")
+
+
+def test_queue_errors_from_spotify_are_explained():
+    from spotipy.exceptions import SpotifyException
+
+    no_device = SpotifyException(404, -1, "Player command failed: No active device found",
+                                 reason="NO_ACTIVE_DEVICE")
+    with pytest.raises(SpeakerError, match="nothing is playing"):
+        UserLibrary(FakePlayer(no_device)).queue_add("spotify:track:Q")
+    premium = SpotifyException(403, -1, "Player command failed: Premium required",
+                               reason="PREMIUM_REQUIRED")
+    with pytest.raises(SpeakerError, match="Premium"):
+        UserLibrary(FakePlayer(premium)).queue_add("spotify:track:Q")
+
+
+def test_from_cache_keeps_working_with_the_scopes_the_token_has(tmp_path):
+    import json
+
+    token = tmp_path / "token.json"
+    token.write_text(json.dumps({"access_token": "a", "refresh_token": "r", "expires_at": 9e9,
+                                 "scope": "user-top-read playlist-read-private"}))
+    lib = UserLibrary.from_cache("cid", token)
+    assert lib.scopes == {"user-top-read", "playlist-read-private"}
+    assert lib._sp.auth_manager.validate_token(json.loads(token.read_text())) is not None
