@@ -187,6 +187,11 @@ hand in 3D (drag to orbit), the active gesture, how closely your hand matches ea
 custom gesture, and the tilt gauge while you scroll. On the right, every gesture
 with its binding.
 
+**Pause / Resume** (top of the live panel, or press `P`) takes your hand off the
+computer: no cursor movement, clicks, scrolling or gesture actions until you
+resume. Tracking keeps running, so the live view still shows your hand and which
+gesture it sees. A take you record while paused leaves it paused afterwards.
+
 **Add a gesture** in five steps:
 
 <p align="center"><img src="docs/images/studio-add.png" alt="Adding a gesture: three takes recorded, quality check passed (recognizable, repeatable, distinct), bind and save" width="70%"></p>
@@ -454,7 +459,7 @@ See [docs/voice/DEPLOY.md](docs/voice/DEPLOY.md) for service deployment and
 | `GazeHCIModule` | `GazeEvent` + `WorldPoseEvent` → gaze cursor (`follow` or `jump_on_pinch`), index pinch = left click/drag, middle pinch = right click |
 | `PointingModule` | `WorldPoseEvent` → `PointEvent` (index-finger ray) |
 | `ActionDispatcher` | `GestureEvent` / `ActionEvent` → bound action (media, keys, text, shell, macro), per-gesture cooldown, repeat while held |
-| `StudioModule` | `WorldPoseEvent` + `GestureStateEvent` → gesture studio web UI; `StudioModeEvent` pauses cursor and actions while recording |
+| `StudioModule` | `WorldPoseEvent` + `GestureStateEvent` → gesture studio web UI; `StudioModeEvent` pauses cursor and actions while recording or when you press Pause |
 | `VisualizerModule` | `FrameEvent`/`PoseEvent`/`WorldPoseEvent` → 2D overlay windows + interactive 3D hand viewer |
 
 </details>

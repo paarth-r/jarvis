@@ -207,3 +207,45 @@ async def test_index_and_static_files(studio):
     assert status == 200
     status, _ = await _request(studio.server.port, "GET", "/static/..%2Fmodule.py")
     assert status == 404
+
+
+async def test_pause_and_resume_hand_control(studio):
+    status, body = await api(studio, "GET", "/api/state")
+    assert body["paused"] is False
+    status, body = await api(studio, "POST", "/api/pause", {"paused": True})
+    assert status == 200 and body == {"paused": True}
+    assert studio.modes == [True]
+    status, body = await api(studio, "GET", "/api/state")
+    assert body["paused"] is True
+    status, body = await api(studio, "POST", "/api/pause", {"paused": False})
+    assert body == {"paused": False} and studio.modes == [True, False]
+
+
+async def test_pause_needs_a_boolean(studio):
+    status, body = await api(studio, "POST", "/api/pause", {"paused": "yes"})
+    assert status == 400 and "true or false" in body["error"]
+    assert studio.modes == []
+
+
+async def test_recording_while_paused_stays_paused_after(studio):
+    await api(studio, "POST", "/api/pause", {"paused": True})
+    await api(studio, "POST", "/api/candidate", {"name": "three"})
+    status, body = await _take(studio, THREE)
+    assert status == 200
+    # Paused before, during and after the take: never let go in between.
+    assert studio.modes and all(studio.modes)
+    _, state = await api(studio, "GET", "/api/state")
+    assert state["paused"] is True
+
+
+async def test_resume_during_a_take_waits_for_it_to_finish(studio):
+    await api(studio, "POST", "/api/pause", {"paused": True})
+    await api(studio, "POST", "/api/candidate", {"name": "three"})
+    req = asyncio.create_task(api(studio, "POST", "/api/candidate/record",
+                                  {"kind": "take", "countdown_s": 0, "seconds": 0.3}))
+    await asyncio.sleep(0.1)
+    await api(studio, "POST", "/api/pause", {"paused": False})
+    assert all(studio.modes)                    # the take still holds the hand
+    await _feed(studio, THREE, 0.3)
+    await req
+    assert studio.modes[-1] is False

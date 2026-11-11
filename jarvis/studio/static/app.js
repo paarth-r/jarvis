@@ -141,7 +141,9 @@ function renderLive() {
     name.textContent = live.pinch === "dragging" ? "Dragging" : live.pinch === "pending" ? "Pinch" : "No gesture";
     name.classList.toggle("on", live.pinch === "dragging" || live.pinch === "pending");
   }
+  renderPause();
   if (live.recording) sub.textContent = "Cursor and gestures are paused while recording";
+  else if (live.paused && live.active) sub.textContent = "Seen, but paused: nothing fires";
   else if (live.active === "fist") sub.textContent = live.scroll ? "Tilt to scroll" : "Scroll mode";
   else if (live.candidate && live.candidate !== live.active) sub.textContent = `Hold for ${live.candidate}`;
   else sub.innerHTML = "&nbsp;";
@@ -173,6 +175,34 @@ function renderLive() {
     row.classList.toggle("is-active", row.dataset.name === live.active);
   });
 }
+
+function renderPause() {
+  const paused = !!live.paused;
+  const btn = $("pause-btn");
+  btn.textContent = paused ? "Resume" : "Pause";
+  btn.setAttribute("aria-pressed", String(paused));
+  btn.classList.toggle("primary", paused);
+  $("control").classList.toggle("paused", paused);
+  $("control-state").textContent = paused
+    ? "Paused: no cursor, clicks, scrolling or gesture actions"
+    : "Hand control on";
+}
+
+async function setPaused(paused) {
+  const btn = $("pause-btn");
+  btn.disabled = true;
+  try {
+    const r = await api("POST", "/api/pause", { paused });
+    live.paused = r.paused;
+    renderPause();
+  } catch (e) {
+    toast(`Couldn't ${paused ? "pause" : "resume"}: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("pause-btn").addEventListener("click", () => setPaused(!live.paused));
 
 function renderOverlay() {
   const rec = live.recording;
@@ -586,6 +616,13 @@ document.addEventListener("keydown", (e) => {
   if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.code === "Space" && add.name) { e.preventDefault(); record("take"); }
   else if (e.code === "Enter" && add.takes.length >= 3) { e.preventDefault(); check(); }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ($("bind-dialog").open || e.repeat) return;
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName);
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.code === "KeyP") { e.preventDefault(); setPaused(!live.paused); }
 });
 
 // ---------- boot ----------
