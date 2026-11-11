@@ -32,7 +32,7 @@ class ActionDispatcher(Module):
         self.runner = ActionRunner()
         self._last: Dict[str, float] = {}
         self._repeats: Dict[str, asyncio.Task] = {}
-        self.paused = False      # the studio pauses actions while recording
+        self.paused = False      # the studio pauses actions (recording, or its pause button)
         self.bus.subscribe(ActionEvent, self._on_action)
         self.bus.subscribe(GestureEvent, self._on_gesture)
         self.bus.subscribe(StudioModeEvent, self._on_studio_mode)
@@ -81,7 +81,7 @@ class ActionDispatcher(Module):
             self._fire(name, action, cooldown=False)
 
     async def _on_studio_mode(self, event: StudioModeEvent) -> None:
-        self.paused = event.recording
+        self.paused = event.paused
         if self.paused:
             for task in self._repeats.values():
                 task.cancel()

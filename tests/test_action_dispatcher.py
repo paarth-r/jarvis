@@ -114,10 +114,10 @@ async def test_repeat_while_held_then_stops_on_end():
 @pytest.mark.asyncio
 async def test_studio_recording_pauses_actions():
     bus, mod, backend = await _dispatcher()
-    await bus.publish(StudioModeEvent(recording=True))
+    await bus.publish(StudioModeEvent(paused=True))
     await bus.publish(_start("point"))
     assert backend.calls == []
-    await bus.publish(StudioModeEvent(recording=False))
+    await bus.publish(StudioModeEvent(paused=False))
     await bus.publish(_start("point"))
     assert len(backend.calls) == 1
 

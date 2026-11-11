@@ -64,9 +64,11 @@ class GestureStateEvent:
 
 @dataclass
 class StudioModeEvent:
-    # The gesture studio is recording takes: cursor control and gesture
-    # actions pause so making the gesture doesn't click or fire anything.
-    recording: bool
+    # Hands off: cursor control, clicks, scrolling and gesture actions pause.
+    # The gesture studio sends it while a take records (so making the gesture
+    # doesn't click or fire anything) and while its Pause button is on.
+    # Hand tracking keeps running either way.
+    paused: bool
 
 
 @dataclass

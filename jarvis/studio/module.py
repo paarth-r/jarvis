@@ -7,6 +7,9 @@
 - Add: name -> record takes -> optional everyday-movement clip -> quality
   report -> bind -> save. While a take records, cursor control and gesture
   actions pause (StudioModeEvent).
+- Pause: a switch that takes your hand off the computer (no cursor, clicks,
+  scrolling or gesture actions) until you resume. Tracking keeps running, so
+  the live view still shows the hand and which gesture it sees.
 """
 from __future__ import annotations
 
@@ -58,6 +61,8 @@ class StudioModule(Module):
         self._events: Deque[Dict[str, Any]] = deque(maxlen=12)
         self._recording: Optional[Dict[str, Any]] = None   # {kind, phase, until, samples}
         self.candidate: Optional[Dict[str, Any]] = None
+        self._paused = False     # the user's Pause switch (a take pauses on its own)
+        self._sent: Optional[bool] = None   # the last StudioModeEvent we published
         bus.subscribe(WorldPoseEvent, self._on_pose)
         bus.subscribe(GestureStateEvent, self._on_state)
         bus.subscribe(GestureEvent, self._on_gesture)
@@ -122,6 +127,7 @@ class StudioModule(Module):
             },
             "events": list(self._events),
             "candidate_takes": len(self.candidate["takes"]) if self.candidate else 0,
+            "paused": self._paused,
         }
 
     # --- routes ---
@@ -153,6 +159,16 @@ class StudioModule(Module):
                     yield self._snapshot()
                     await asyncio.sleep(1 / 20)
             return events()
+
+        @r("POST", r"/api/pause")
+        async def pause(req: Request):
+            paused = (req.json or {}).get("paused")
+            if not isinstance(paused, bool):
+                raise StudioError("paused must be true or false")
+            self._paused = paused
+            logger.info("Hand control %s from the studio", "paused" if paused else "resumed")
+            await self._publish_mode()
+            return {"paused": paused}
 
         @r("GET", r"/api/gestures")
         async def gestures(req: Request):
@@ -303,6 +319,14 @@ class StudioModule(Module):
         others = {n: g for n, g in self.library.gestures.items() if n != cand["name"]}
         return assess(cand["takes"], SimpleNamespace(gestures=others), background=cand["background"])
 
+    async def _publish_mode(self) -> None:
+        """Hands off while the user paused or a take is recording. Only
+        changes go out, so a take never lets go of a paused hand."""
+        paused = self._paused or self._recording is not None
+        if paused != self._sent:
+            self._sent = paused
+            await self.bus.publish(StudioModeEvent(paused=paused))
+
     async def _record(self, kind: str, countdown: float, seconds: float) -> List[Optional[np.ndarray]]:
         if self._recording:
             raise StudioError("already recording")
@@ -311,7 +335,7 @@ class StudioModule(Module):
         self._recording = rec
         # Cursor and actions pause from the countdown on: the hand is busy
         # getting into the gesture, and that must not click or fire anything.
-        await self.bus.publish(StudioModeEvent(recording=True))
+        await self._publish_mode()
         try:
             await asyncio.sleep(countdown)
             start = time.perf_counter()
@@ -322,7 +346,7 @@ class StudioModule(Module):
             return to_frames(samples, start, end)
         finally:
             self._recording = None
-            await self.bus.publish(StudioModeEvent(recording=False))
+            await self._publish_mode()
 
     # --- lifecycle ---
 

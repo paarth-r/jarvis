@@ -93,6 +93,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .overlay-bar { width: 60%; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 #overlay-fill { height: 100%; width: 0; background: var(--signal); }
 
+.control {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 8px 8px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel);
+}
+.control-state { color: var(--muted); font-size: 14px; }
+.control-state::before {
+  content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 8px; vertical-align: 1px; background: var(--pass);
+}
+.control.paused { border-color: var(--warn); }
+.control.paused .control-state { color: var(--ink); }
+.control.paused .control-state::before { background: var(--warn); }
 .readout { text-align: center; }
 .active-name {
   font: 600 52px/1.05 var(--round);

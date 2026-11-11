@@ -251,7 +251,7 @@ async def test_recording_freezes_cursor_clicks_and_scroll(monkeypatch):
     bus, controller, gestures = await _setup(monkeypatch, **_SCROLL)
     await bus.publish(_ev(0.0, hand(OPEN)))
     n = len(controller.calls)
-    await bus.publish(StudioModeEvent(recording=True))
+    await bus.publish(StudioModeEvent(paused=True))
     t = 0.05
     for i in range(10):
         await bus.publish(_ev(t, pinch(), x=0.01 * i, pinch_m=0.01))
@@ -261,7 +261,7 @@ async def test_recording_freezes_cursor_clicks_and_scroll(monkeypatch):
         t += 1 / FPS
     await bus.publish(_ev(t, hand(OPEN), pinch_m=0.10))
     assert controller.calls[n:] == []
-    await bus.publish(StudioModeEvent(recording=False))
+    await bus.publish(StudioModeEvent(paused=False))
     await bus.publish(_ev(t + 0.5, hand(OPEN)))
     assert controller.calls[n:] != []
 
@@ -271,7 +271,7 @@ async def test_recording_mid_drag_lets_go_of_the_button(monkeypatch):
     bus, controller, gestures = await _setup(monkeypatch)
     await bus.publish(_ev(0.0, pinch(), pinch_m=0.01))
     await bus.publish(_ev(0.3, pinch(), pinch_m=0.01))       # dragging
-    await bus.publish(StudioModeEvent(recording=True))
+    await bus.publish(StudioModeEvent(paused=True))
     assert _kinds(controller)[-1] == "mouse_up_here"
 
 

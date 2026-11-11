@@ -10,6 +10,10 @@
 <body>
 <div class="app">
   <section class="live" aria-label="Live hand">
+    <div id="control" class="control">
+      <span id="control-state" class="control-state">Hand control on</span>
+      <button id="pause-btn" aria-pressed="false" title="Pause or resume hand control (P)">Pause</button>
+    </div>
     <div class="stage">
       <canvas id="hand" width="640" height="560" aria-label="Your tracked hand"></canvas>
       <div id="overlay" class="overlay" hidden>
