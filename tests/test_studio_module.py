@@ -25,7 +25,7 @@ async def studio():
     modes = []
 
     async def on_mode(e):
-        modes.append(e.recording)
+        modes.append(e.paused)
 
     bus.subscribe(StudioModeEvent, on_mode)
     mod.modes = modes

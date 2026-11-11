@@ -311,7 +311,7 @@ class StudioModule(Module):
         self._recording = rec
         # Cursor and actions pause from the countdown on: the hand is busy
         # getting into the gesture, and that must not click or fire anything.
-        await self.bus.publish(StudioModeEvent(recording=True))
+        await self.bus.publish(StudioModeEvent(paused=True))
         try:
             await asyncio.sleep(countdown)
             start = time.perf_counter()
@@ -322,7 +322,7 @@ class StudioModule(Module):
             return to_frames(samples, start, end)
         finally:
             self._recording = None
-            await self.bus.publish(StudioModeEvent(recording=False))
+            await self.bus.publish(StudioModeEvent(paused=False))
 
     # --- lifecycle ---
 

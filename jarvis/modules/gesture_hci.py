@@ -156,18 +156,18 @@ class GestureHCIModule(Module):
         self._scroll_enabled: bool = scroll.pop("enabled", True)
         self._scroller = TiltScroller(**scroll)
         self.last_frame: Optional[GestureFrame] = None
-        self._recording = False   # the studio is recording a gesture: hands off the cursor
+        self._paused = False   # the studio is recording or paused: hands off the cursor
         self.bus.subscribe(WorldPoseEvent, self._on_pose)
         self.bus.subscribe(StudioModeEvent, self._on_studio_mode)
 
     async def _on_studio_mode(self, event: StudioModeEvent) -> None:
-        self._recording = event.recording
-        if event.recording and self._fsm.lock() == "release":
+        self._paused = event.paused
+        if event.paused and self._fsm.lock() == "release":
             self._controller.mouse_up_here()
 
     async def _on_pose(self, event: WorldPoseEvent) -> None:
         hold = await self._arbitrate(event)
-        if self._recording:
+        if self._paused:
             self._fsm.lock()
             return
         if self._mode == "trackpad":
@@ -216,7 +216,7 @@ class GestureHCIModule(Module):
         fist = frame.active == "fist" or frame.candidate == "fist"
         if (fist or frame.active is not None) and self._fsm.state != "dragging":
             self._fsm.lock()
-        if not self._recording:
+        if not self._paused:
             await self._scroll(frame, event)
         scrolling = frame.active == "fist" and self._scroller.active
         await self.bus.publish(GestureStateEvent(
